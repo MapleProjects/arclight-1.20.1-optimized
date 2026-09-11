@@ -1,0 +1,98 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  com.google.gson.JsonDeserializationContext
+ *  com.google.gson.JsonDeserializer
+ *  com.google.gson.JsonElement
+ *  com.google.gson.JsonParseException
+ *  com.google.gson.JsonSerializationContext
+ *  com.google.gson.JsonSerializer
+ */
+package net.md_5.bungee.api.chat;
+
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+import java.lang.reflect.Type;
+
+public final class ItemTag {
+    private final String nbt;
+
+    private ItemTag(String nbt) {
+        this.nbt = nbt;
+    }
+
+    public static ItemTag ofNbt(String nbt) {
+        return new ItemTag(nbt);
+    }
+
+    private static Builder builder() {
+        return new Builder();
+    }
+
+    public String toString() {
+        return "ItemTag(nbt=" + this.getNbt() + ")";
+    }
+
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+        if (!(o instanceof ItemTag)) {
+            return false;
+        }
+        ItemTag other = (ItemTag)o;
+        String this$nbt = this.getNbt();
+        String other$nbt = other.getNbt();
+        return !(this$nbt == null ? other$nbt != null : !this$nbt.equals(other$nbt));
+    }
+
+    public int hashCode() {
+        int PRIME = 59;
+        int result = 1;
+        String $nbt = this.getNbt();
+        result = result * 59 + ($nbt == null ? 43 : $nbt.hashCode());
+        return result;
+    }
+
+    public String getNbt() {
+        return this.nbt;
+    }
+
+    private static class Builder {
+        private String nbt;
+
+        Builder() {
+        }
+
+        private Builder nbt(String nbt) {
+            this.nbt = nbt;
+            return this;
+        }
+
+        private ItemTag build() {
+            return new ItemTag(this.nbt);
+        }
+
+        public String toString() {
+            return "ItemTag.Builder(nbt=" + this.nbt + ")";
+        }
+    }
+
+    public static class Serializer
+    implements JsonSerializer<ItemTag>,
+    JsonDeserializer<ItemTag> {
+        public ItemTag deserialize(JsonElement element, Type type, JsonDeserializationContext context) throws JsonParseException {
+            return ItemTag.ofNbt(element.getAsJsonPrimitive().getAsString());
+        }
+
+        public JsonElement serialize(ItemTag itemTag, Type type, JsonSerializationContext context) {
+            return context.serialize((Object)itemTag.getNbt());
+        }
+    }
+}
+

@@ -1,0 +1,49 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  com.google.common.collect.Maps
+ *  org.jetbrains.annotations.Nullable
+ */
+package org.bukkit;
+
+import com.google.common.collect.Maps;
+import java.util.Map;
+import org.jetbrains.annotations.Nullable;
+
+public enum SandstoneType {
+    CRACKED(0),
+    GLYPHED(1),
+    SMOOTH(2);
+
+    private final byte data;
+    private static final Map<Byte, SandstoneType> BY_DATA;
+
+    static {
+        BY_DATA = Maps.newHashMap();
+        SandstoneType[] sandstoneTypeArray = SandstoneType.values();
+        int n = sandstoneTypeArray.length;
+        int n2 = 0;
+        while (n2 < n) {
+            SandstoneType type = sandstoneTypeArray[n2];
+            BY_DATA.put(type.data, type);
+            ++n2;
+        }
+    }
+
+    private SandstoneType(int data) {
+        this.data = (byte)data;
+    }
+
+    @Deprecated
+    public byte getData() {
+        return this.data;
+    }
+
+    @Deprecated
+    @Nullable
+    public static SandstoneType getByData(byte data) {
+        return BY_DATA.get(data);
+    }
+}
+

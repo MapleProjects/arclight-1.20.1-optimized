@@ -1,0 +1,69 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  net.minecraft.world.Container
+ *  net.minecraft.world.level.block.Blocks
+ *  net.minecraft.world.level.block.DispenserBlock
+ *  net.minecraft.world.level.block.entity.DispenserBlockEntity
+ */
+package org.bukkit.craftbukkit.v1_20_R1.block;
+
+import net.minecraft.world.Container;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DispenserBlock;
+import net.minecraft.world.level.block.entity.DispenserBlockEntity;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.Dispenser;
+import org.bukkit.craftbukkit.v1_20_R1.CraftWorld;
+import org.bukkit.craftbukkit.v1_20_R1.block.CraftLootable;
+import org.bukkit.craftbukkit.v1_20_R1.inventory.CraftInventory;
+import org.bukkit.craftbukkit.v1_20_R1.projectiles.CraftBlockProjectileSource;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.projectiles.BlockProjectileSource;
+
+public class CraftDispenser
+extends CraftLootable<DispenserBlockEntity>
+implements Dispenser {
+    public CraftDispenser(World world, DispenserBlockEntity tileEntity) {
+        super(world, tileEntity);
+    }
+
+    @Override
+    public Inventory getSnapshotInventory() {
+        return new CraftInventory((Container)this.getSnapshot());
+    }
+
+    @Override
+    public Inventory getInventory() {
+        if (!this.isPlaced()) {
+            return this.getSnapshotInventory();
+        }
+        return new CraftInventory((Container)this.getTileEntity());
+    }
+
+    @Override
+    public BlockProjectileSource getBlockProjectileSource() {
+        Block block = this.getBlock();
+        if (block.getType() != Material.DISPENSER) {
+            return null;
+        }
+        return new CraftBlockProjectileSource((DispenserBlockEntity)this.getTileEntityFromWorld());
+    }
+
+    @Override
+    public boolean dispense() {
+        this.ensureNoWorldGeneration();
+        Block block = this.getBlock();
+        if (block.getType() == Material.DISPENSER) {
+            CraftWorld world = (CraftWorld)this.getWorld();
+            DispenserBlock dispense = (DispenserBlock)Blocks.f_50061_;
+            dispense.m_5824_(world.getHandle(), this.getPosition());
+            return true;
+        }
+        return false;
+    }
+}
+

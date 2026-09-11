@@ -1,0 +1,34 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  net.minecraft.world.level.ClipContext$Fluid
+ */
+package org.bukkit.craftbukkit.v1_20_R1;
+
+import net.minecraft.world.level.ClipContext;
+import org.bukkit.FluidCollisionMode;
+
+public final class CraftFluidCollisionMode {
+    private CraftFluidCollisionMode() {
+    }
+
+    public static ClipContext.Fluid toNMS(FluidCollisionMode fluidCollisionMode) {
+        if (fluidCollisionMode == null) {
+            return null;
+        }
+        switch (fluidCollisionMode) {
+            case ALWAYS: {
+                return ClipContext.Fluid.ANY;
+            }
+            case SOURCE_ONLY: {
+                return ClipContext.Fluid.SOURCE_ONLY;
+            }
+            case NEVER: {
+                return ClipContext.Fluid.NONE;
+            }
+        }
+        return null;
+    }
+}
+

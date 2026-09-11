@@ -1,0 +1,8 @@
+/*
+ * Decompiled with CFR 0.152.
+ */
+package org.bukkit.util;
+
+public interface CachedServerIcon {
+}
+

@@ -1,0 +1,127 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  com.google.common.base.Preconditions
+ *  net.minecraft.network.protocol.Packet
+ *  net.minecraft.network.protocol.game.ClientboundOpenScreenPacket
+ *  net.minecraft.server.level.ServerPlayer
+ *  net.minecraft.world.inventory.AbstractContainerMenu
+ *  net.minecraft.world.inventory.MenuType
+ *  net.minecraft.world.item.ItemStack
+ */
+package org.bukkit.craftbukkit.v1_20_R1.inventory;
+
+import com.google.common.base.Preconditions;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
+import org.bukkit.GameMode;
+import org.bukkit.craftbukkit.v1_20_R1.entity.CraftHumanEntity;
+import org.bukkit.craftbukkit.v1_20_R1.inventory.CraftContainer;
+import org.bukkit.craftbukkit.v1_20_R1.inventory.CraftInventory;
+import org.bukkit.craftbukkit.v1_20_R1.inventory.CraftItemStack;
+import org.bukkit.craftbukkit.v1_20_R1.util.CraftChatMessage;
+import org.bukkit.entity.HumanEntity;
+import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
+import org.bukkit.inventory.ItemStack;
+
+public class CraftInventoryView
+extends InventoryView {
+    private final AbstractContainerMenu container;
+    private final CraftHumanEntity player;
+    private final CraftInventory viewing;
+    private final String originalTitle;
+    private String title;
+
+    public CraftInventoryView(HumanEntity player, Inventory viewing, AbstractContainerMenu container) {
+        this.player = (CraftHumanEntity)player;
+        this.viewing = (CraftInventory)viewing;
+        this.container = container;
+        this.title = this.originalTitle = CraftChatMessage.fromComponent(container.getTitle());
+    }
+
+    @Override
+    public Inventory getTopInventory() {
+        return this.viewing;
+    }
+
+    @Override
+    public Inventory getBottomInventory() {
+        return this.player.getInventory();
+    }
+
+    @Override
+    public HumanEntity getPlayer() {
+        return this.player;
+    }
+
+    @Override
+    public InventoryType getType() {
+        InventoryType type = this.viewing.getType();
+        if (type == InventoryType.CRAFTING && this.player.getGameMode() == GameMode.CREATIVE) {
+            return InventoryType.CREATIVE;
+        }
+        return type;
+    }
+
+    @Override
+    public void setItem(int slot, ItemStack item) {
+        net.minecraft.world.item.ItemStack stack = CraftItemStack.asNMSCopy(item);
+        if (slot >= 0) {
+            this.container.m_38853_(slot).m_5852_(stack);
+        } else {
+            this.player.getHandle().m_36176_(stack, false);
+        }
+    }
+
+    @Override
+    public ItemStack getItem(int slot) {
+        if (slot < 0) {
+            return null;
+        }
+        return CraftItemStack.asCraftMirror(this.container.m_38853_(slot).m_7993_());
+    }
+
+    @Override
+    public String getTitle() {
+        return this.title;
+    }
+
+    @Override
+    public String getOriginalTitle() {
+        return this.originalTitle;
+    }
+
+    @Override
+    public void setTitle(String title) {
+        CraftInventoryView.sendInventoryTitleChange(this, title);
+        this.title = title;
+    }
+
+    public boolean isInTop(int rawSlot) {
+        return rawSlot < this.viewing.getSize();
+    }
+
+    public AbstractContainerMenu getHandle() {
+        return this.container;
+    }
+
+    public static void sendInventoryTitleChange(InventoryView view, String title) {
+        Preconditions.checkArgument((view != null ? 1 : 0) != 0, (Object)"InventoryView cannot be null");
+        Preconditions.checkArgument((title != null ? 1 : 0) != 0, (Object)"Title cannot be null");
+        Preconditions.checkArgument((boolean)(view.getPlayer() instanceof Player), (Object)"NPCs are not currently supported for this function");
+        Preconditions.checkArgument((boolean)view.getTopInventory().getType().isCreatable(), (Object)"Only creatable inventories can have their title changed");
+        ServerPlayer entityPlayer = (ServerPlayer)((CraftHumanEntity)view.getPlayer()).getHandle();
+        int containerId = entityPlayer.f_36096_.f_38840_;
+        MenuType windowType = CraftContainer.getNotchInventoryType(view.getTopInventory());
+        entityPlayer.f_8906_.m_9829_((Packet)new ClientboundOpenScreenPacket(containerId, windowType, CraftChatMessage.fromString(title)[0]));
+        ((Player)view.getPlayer()).updateInventory();
+    }
+}
+

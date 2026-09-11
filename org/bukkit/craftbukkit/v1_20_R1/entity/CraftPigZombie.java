@@ -1,0 +1,67 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  net.minecraft.world.entity.monster.Zombie
+ *  net.minecraft.world.entity.monster.ZombifiedPiglin
+ */
+package org.bukkit.craftbukkit.v1_20_R1.entity;
+
+import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.monster.ZombifiedPiglin;
+import org.bukkit.craftbukkit.v1_20_R1.CraftServer;
+import org.bukkit.craftbukkit.v1_20_R1.entity.CraftZombie;
+import org.bukkit.entity.PigZombie;
+
+public class CraftPigZombie
+extends CraftZombie
+implements PigZombie {
+    public CraftPigZombie(CraftServer server, ZombifiedPiglin entity) {
+        super(server, (Zombie)entity);
+    }
+
+    @Override
+    public int getAnger() {
+        return this.getHandle().m_6784_();
+    }
+
+    @Override
+    public void setAnger(int level) {
+        this.getHandle().m_7870_(level);
+    }
+
+    @Override
+    public void setAngry(boolean angry) {
+        this.setAnger(angry ? 400 : 0);
+    }
+
+    @Override
+    public boolean isAngry() {
+        return this.getAnger() > 0;
+    }
+
+    public ZombifiedPiglin getHandle() {
+        return (ZombifiedPiglin)this.entity;
+    }
+
+    @Override
+    public String toString() {
+        return "CraftPigZombie";
+    }
+
+    @Override
+    public boolean isConverting() {
+        return false;
+    }
+
+    @Override
+    public int getConversionTime() {
+        throw new UnsupportedOperationException("Not supported by this Entity.");
+    }
+
+    @Override
+    public void setConversionTime(int time) {
+        throw new UnsupportedOperationException("Not supported by this Entity.");
+    }
+}
+

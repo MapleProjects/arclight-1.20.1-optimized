@@ -1,0 +1,495 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  com.mojang.authlib.GameProfile
+ *  com.mojang.serialization.DynamicOps
+ *  net.minecraft.core.GlobalPos
+ *  net.minecraft.nbt.CompoundTag
+ *  net.minecraft.nbt.NbtOps
+ *  net.minecraft.nbt.Tag
+ *  net.minecraft.server.players.StoredUserEntry
+ *  net.minecraft.server.players.UserWhiteListEntry
+ *  net.minecraft.stats.ServerStatsCounter
+ *  net.minecraft.world.level.storage.PlayerDataStorage
+ */
+package org.bukkit.craftbukkit.v1_20_R1;
+
+import com.mojang.authlib.GameProfile;
+import com.mojang.serialization.DynamicOps;
+import java.io.File;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.core.GlobalPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.players.StoredUserEntry;
+import net.minecraft.server.players.UserWhiteListEntry;
+import net.minecraft.stats.ServerStatsCounter;
+import net.minecraft.world.level.storage.PlayerDataStorage;
+import org.bukkit.BanEntry;
+import org.bukkit.BanList;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.Server;
+import org.bukkit.Statistic;
+import org.bukkit.ban.ProfileBanList;
+import org.bukkit.configuration.serialization.ConfigurationSerializable;
+import org.bukkit.configuration.serialization.SerializableAs;
+import org.bukkit.craftbukkit.v1_20_R1.CraftServer;
+import org.bukkit.craftbukkit.v1_20_R1.CraftStatistic;
+import org.bukkit.craftbukkit.v1_20_R1.entity.memory.CraftMemoryMapper;
+import org.bukkit.craftbukkit.v1_20_R1.profile.CraftPlayerProfile;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Player;
+import org.bukkit.metadata.MetadataValue;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.profile.PlayerProfile;
+
+@SerializableAs(value="Player")
+public class CraftOfflinePlayer
+implements OfflinePlayer,
+ConfigurationSerializable {
+    private final GameProfile profile;
+    private final CraftServer server;
+    private final PlayerDataStorage storage;
+
+    protected CraftOfflinePlayer(CraftServer server, GameProfile profile) {
+        this.server = server;
+        this.profile = profile;
+        this.storage = server.console.f_129745_;
+    }
+
+    @Override
+    public boolean isOnline() {
+        return this.getPlayer() != null;
+    }
+
+    @Override
+    public String getName() {
+        Player player = this.getPlayer();
+        if (player != null) {
+            return player.getName();
+        }
+        if (this.profile.getName() != null) {
+            return this.profile.getName();
+        }
+        CompoundTag data = this.getBukkitData();
+        if (data != null && data.m_128441_("lastKnownName")) {
+            return data.m_128461_("lastKnownName");
+        }
+        return null;
+    }
+
+    @Override
+    public UUID getUniqueId() {
+        return this.profile.getId();
+    }
+
+    @Override
+    public PlayerProfile getPlayerProfile() {
+        return new CraftPlayerProfile(this.profile);
+    }
+
+    public Server getServer() {
+        return this.server;
+    }
+
+    @Override
+    public boolean isOp() {
+        return this.server.getHandle().m_11303_(this.profile);
+    }
+
+    @Override
+    public void setOp(boolean value) {
+        if (value == this.isOp()) {
+            return;
+        }
+        if (value) {
+            this.server.getHandle().m_5749_(this.profile);
+        } else {
+            this.server.getHandle().m_5750_(this.profile);
+        }
+    }
+
+    @Override
+    public boolean isBanned() {
+        return ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).isBanned(this.getPlayerProfile());
+    }
+
+    @Override
+    public BanEntry<PlayerProfile> ban(String reason, Date expires, String source) {
+        return ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).addBan(this.getPlayerProfile(), reason, expires, source);
+    }
+
+    @Override
+    public BanEntry<PlayerProfile> ban(String reason, Instant expires, String source) {
+        return ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).addBan(this.getPlayerProfile(), reason, expires, source);
+    }
+
+    @Override
+    public BanEntry<PlayerProfile> ban(String reason, Duration duration, String source) {
+        return ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).addBan(this.getPlayerProfile(), reason, duration, source);
+    }
+
+    public void setBanned(boolean value) {
+        if (value) {
+            ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).addBan(this.getPlayerProfile(), (String)null, (Date)null, (String)null);
+        } else {
+            ((ProfileBanList)this.server.getBanList(BanList.Type.PROFILE)).pardon(this.getPlayerProfile());
+        }
+    }
+
+    @Override
+    public boolean isWhitelisted() {
+        return this.server.getHandle().m_11305_().m_11453_(this.profile);
+    }
+
+    @Override
+    public void setWhitelisted(boolean value) {
+        if (value) {
+            this.server.getHandle().m_11305_().m_11381_((StoredUserEntry)new UserWhiteListEntry(this.profile));
+        } else {
+            this.server.getHandle().m_11305_().m_11393_((Object)this.profile);
+        }
+    }
+
+    @Override
+    public Map<String, Object> serialize() {
+        LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("UUID", this.profile.getId().toString());
+        return result;
+    }
+
+    public static OfflinePlayer deserialize(Map<String, Object> args) {
+        if (args.get("name") != null) {
+            return Bukkit.getServer().getOfflinePlayer((String)args.get("name"));
+        }
+        return Bukkit.getServer().getOfflinePlayer(UUID.fromString((String)args.get("UUID")));
+    }
+
+    public String toString() {
+        return String.valueOf(this.getClass().getSimpleName()) + "[UUID=" + this.profile.getId() + "]";
+    }
+
+    @Override
+    public Player getPlayer() {
+        return this.server.getPlayer(this.getUniqueId());
+    }
+
+    public boolean equals(Object obj) {
+        if (!(obj instanceof OfflinePlayer var2_3)) {
+            return false;
+        }
+        if (this.getUniqueId() == null || other.getUniqueId() == null) {
+            return false;
+        }
+        return this.getUniqueId().equals(other.getUniqueId());
+    }
+
+    public int hashCode() {
+        int hash = 5;
+        hash = 97 * hash + (this.getUniqueId() != null ? this.getUniqueId().hashCode() : 0);
+        return hash;
+    }
+
+    private CompoundTag getData() {
+        return this.storage.getPlayerData(this.getUniqueId().toString());
+    }
+
+    private CompoundTag getBukkitData() {
+        CompoundTag result = this.getData();
+        if (result != null) {
+            if (!result.m_128441_("bukkit")) {
+                result.m_128365_("bukkit", (Tag)new CompoundTag());
+            }
+            result = result.m_128469_("bukkit");
+        }
+        return result;
+    }
+
+    private File getDataFile() {
+        return new File(this.storage.getPlayerDir(), this.getUniqueId() + ".dat");
+    }
+
+    @Override
+    public long getFirstPlayed() {
+        Player player = this.getPlayer();
+        if (player != null) {
+            return player.getFirstPlayed();
+        }
+        CompoundTag data = this.getBukkitData();
+        if (data != null) {
+            if (data.m_128441_("firstPlayed")) {
+                return data.m_128454_("firstPlayed");
+            }
+            File file = this.getDataFile();
+            return file.lastModified();
+        }
+        return 0L;
+    }
+
+    @Override
+    public long getLastPlayed() {
+        Player player = this.getPlayer();
+        if (player != null) {
+            return player.getLastPlayed();
+        }
+        CompoundTag data = this.getBukkitData();
+        if (data != null) {
+            if (data.m_128441_("lastPlayed")) {
+                return data.m_128454_("lastPlayed");
+            }
+            File file = this.getDataFile();
+            return file.lastModified();
+        }
+        return 0L;
+    }
+
+    @Override
+    public boolean hasPlayedBefore() {
+        return this.getData() != null;
+    }
+
+    @Override
+    public Location getLastDeathLocation() {
+        if (this.getData().m_128425_("LastDeathLocation", 10)) {
+            return GlobalPos.f_122633_.parse((DynamicOps)NbtOps.f_128958_, (Object)this.getData().m_128423_("LastDeathLocation")).result().map(CraftMemoryMapper::fromNms).orElse(null);
+        }
+        return null;
+    }
+
+    @Override
+    public Location getBedSpawnLocation() {
+        CompoundTag data = this.getData();
+        if (data == null) {
+            return null;
+        }
+        if (data.m_128441_("SpawnX") && data.m_128441_("SpawnY") && data.m_128441_("SpawnZ")) {
+            String spawnWorld = data.m_128461_("SpawnWorld");
+            if (spawnWorld.equals("")) {
+                spawnWorld = this.server.getWorlds().get(0).getName();
+            }
+            return new Location(this.server.getWorld(spawnWorld), data.m_128451_("SpawnX"), data.m_128451_("SpawnY"), data.m_128451_("SpawnZ"));
+        }
+        return null;
+    }
+
+    public void setMetadata(String metadataKey, MetadataValue metadataValue) {
+        this.server.getPlayerMetadata().setMetadata(this, metadataKey, metadataValue);
+    }
+
+    public List<MetadataValue> getMetadata(String metadataKey) {
+        return this.server.getPlayerMetadata().getMetadata(this, metadataKey);
+    }
+
+    public boolean hasMetadata(String metadataKey) {
+        return this.server.getPlayerMetadata().hasMetadata(this, metadataKey);
+    }
+
+    public void removeMetadata(String metadataKey, Plugin plugin) {
+        this.server.getPlayerMetadata().removeMetadata(this, metadataKey, plugin);
+    }
+
+    private ServerStatsCounter getStatisticManager() {
+        return this.server.getHandle().getPlayerStats(this.getUniqueId(), this.getName());
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public int getStatistic(Statistic statistic) {
+        if (this.isOnline()) {
+            return this.getPlayer().getStatistic(statistic);
+        }
+        return CraftStatistic.getStatistic(this.getStatisticManager(), statistic);
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void setStatistic(Statistic statistic, int newValue) {
+        if (this.isOnline()) {
+            this.getPlayer().setStatistic(statistic, newValue);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.setStatistic(manager, statistic, newValue);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic, Material material) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic, material);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic, material);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic, Material material) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic, material);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic, material);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public int getStatistic(Statistic statistic, Material material) {
+        if (this.isOnline()) {
+            return this.getPlayer().getStatistic(statistic, material);
+        }
+        return CraftStatistic.getStatistic(this.getStatisticManager(), statistic, material);
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic, Material material, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic, material, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic, material, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic, Material material, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic, material, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic, material, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void setStatistic(Statistic statistic, Material material, int newValue) {
+        if (this.isOnline()) {
+            this.getPlayer().setStatistic(statistic, material, newValue);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.setStatistic(manager, statistic, material, newValue);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic, EntityType entityType) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic, entityType);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic, entityType);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic, EntityType entityType) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic, entityType);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic, entityType);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public int getStatistic(Statistic statistic, EntityType entityType) {
+        if (this.isOnline()) {
+            return this.getPlayer().getStatistic(statistic, entityType);
+        }
+        return CraftStatistic.getStatistic(this.getStatisticManager(), statistic, entityType);
+    }
+
+    @Override
+    public void incrementStatistic(Statistic statistic, EntityType entityType, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().incrementStatistic(statistic, entityType, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.incrementStatistic(manager, statistic, entityType, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void decrementStatistic(Statistic statistic, EntityType entityType, int amount) {
+        if (this.isOnline()) {
+            this.getPlayer().decrementStatistic(statistic, entityType, amount);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.decrementStatistic(manager, statistic, entityType, amount);
+            manager.m_12818_();
+        }
+    }
+
+    @Override
+    public void setStatistic(Statistic statistic, EntityType entityType, int newValue) {
+        if (this.isOnline()) {
+            this.getPlayer().setStatistic(statistic, entityType, newValue);
+        } else {
+            ServerStatsCounter manager = this.getStatisticManager();
+            CraftStatistic.setStatistic(manager, statistic, entityType, newValue);
+            manager.m_12818_();
+        }
+    }
+}
+
