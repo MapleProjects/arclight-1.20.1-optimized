@@ -118,7 +118,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.level.chunk.ChunkGeneratorMixin\",",
-                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\",\n    \"server.level.ThreadedLevelLightEngineMixin\",\n    \"world.level.NaturalSpawnerMixin\","
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -1114,82 +1114,10 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
-            File serverLevelPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/server/level");
-            serverLevelPkg.mkdirs();
-
-            String lightEngineMixinSrc = "package io.izzel.arclight.common.mixin.core.server.level;\n\n" +
-                "import net.minecraft.server.level.ThreadedLevelLightEngine;\n" +
-                "import org.spongepowered.asm.mixin.Mixin;\n" +
-                "import org.spongepowered.asm.mixin.Shadow;\n" +
-                "import org.spongepowered.asm.mixin.injection.At;\n" +
-                "import org.spongepowered.asm.mixin.injection.Inject;\n" +
-                "import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;\n\n" +
-                "@Mixin(value = ThreadedLevelLightEngine.class, priority = 500)\n" +
-                "public abstract class ThreadedLevelLightEngineMixin {\n\n" +
-                "    private static final ThreadLocal<Boolean> ARCLIGHT$BURSTING = ThreadLocal.withInitial(() -> Boolean.FALSE);\n\n" +
-                "    @Shadow\n" +
-                "    public abstract int m_9323_();\n\n" +
-                "    @Inject(method = \"m_9323_\", at = @At(\"RETURN\"), cancellable = true, remap = false)\n" +
-                "    private void arclight$burstLightDrain(CallbackInfoReturnable<Integer> cir) {\n" +
-                "        if (ARCLIGHT$BURSTING.get().booleanValue()) {\n" +
-                "            return;\n" +
-                "        }\n" +
-                "        int initial = cir.getReturnValue().intValue();\n" +
-                "        if (initial <= 0) {\n" +
-                "            return;\n" +
-                "        }\n" +
-                "        try {\n" +
-                "            ARCLIGHT$BURSTING.set(Boolean.TRUE);\n" +
-                "            int total = initial;\n" +
-                "            int loop = 0;\n" +
-                "            while (loop < 256) {\n" +
-                "                int extra = this.m_9323_();\n" +
-                "                if (extra <= 0) {\n" +
-                "                    break;\n" +
-                "                }\n" +
-                "                total += extra;\n" +
-                "                loop++;\n" +
-                "            }\n" +
-                "            cir.setReturnValue(Integer.valueOf(total));\n" +
-                "        } finally {\n" +
-                "            ARCLIGHT$BURSTING.set(Boolean.FALSE);\n" +
-                "        }\n" +
-                "    }\n" +
-                "}\n";
-
-            File worldLevelPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level");
-            worldLevelPkg.mkdirs();
-
-            String naturalSpawnerMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level;\n\n" +
-                "import net.minecraft.core.Holder;\n" +
-                "import net.minecraft.util.RandomSource;\n" +
-                "import net.minecraft.world.entity.MobCategory;\n" +
-                "import net.minecraft.world.level.ChunkPos;\n" +
-                "import net.minecraft.world.level.NaturalSpawner;\n" +
-                "import net.minecraft.world.level.ServerLevelAccessor;\n" +
-                "import net.minecraft.world.level.biome.Biome;\n" +
-                "import net.minecraft.world.level.biome.MobSpawnSettings;\n" +
-                "import org.spongepowered.asm.mixin.Mixin;\n" +
-                "import org.spongepowered.asm.mixin.injection.At;\n" +
-                "import org.spongepowered.asm.mixin.injection.Inject;\n" +
-                "import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;\n\n" +
-                "@Mixin(value = NaturalSpawner.class, priority = 500)\n" +
-                "public abstract class NaturalSpawnerMixin {\n\n" +
-                "    @Inject(method = \"m_220450_\", at = @At(\"HEAD\"), cancellable = true, remap = false)\n" +
-                "    private static void arclight$fastSpawnCheck(ServerLevelAccessor level, Holder<Biome> biome, ChunkPos chunkPos, RandomSource random, CallbackInfo ci) {\n" +
-                "        MobSpawnSettings settings = biome.m_203334_().m_47518_();\n" +
-                "        if (settings.m_151798_(MobCategory.CREATURE).m_146337_()) {\n" +
-                "            ci.cancel();\n" +
-                "        }\n" +
-                "    }\n" +
-                "}\n";
-
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
             Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceMixinSrc);
             Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
-            Files.writeString(new File(serverLevelPkg, "ThreadedLevelLightEngineMixin.java").toPath(), lightEngineMixinSrc);
-            Files.writeString(new File(worldLevelPkg, "NaturalSpawnerMixin.java").toPath(), naturalSpawnerMixinSrc);
 
             // Construct classpath from libraries and server jar
             File libDir = new File("/home/maple/Server1-20-1/libraries");
@@ -1203,9 +1131,7 @@ public class ArclightPatcher {
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
-                new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath(),
-                new File(serverLevelPkg, "ThreadedLevelLightEngineMixin.java").getAbsolutePath(),
-                new File(worldLevelPkg, "NaturalSpawnerMixin.java").getAbsolutePath()
+                new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath()
             );
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -1217,7 +1143,7 @@ public class ArclightPatcher {
             }
             int code = p.waitFor();
             if (code == 0) {
-                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, SurfaceSystemMixin, PlacedFeatureMixin, ThreadedLevelLightEngineMixin, and NaturalSpawnerMixin into common.jar!");
+                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, SurfaceSystemMixin, and PlacedFeatureMixin into common.jar!");
             } else {
                 throw new RuntimeException("Failed to compile chunk math optimizer mixins, exit code: " + code);
             }
