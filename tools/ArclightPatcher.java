@@ -264,19 +264,7 @@ public class ArclightPatcher {
                 for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn instanceof MethodInsnNode) {
                         MethodInsnNode minsn = (MethodInsnNode) insn;
-                        if (minsn.owner.equals("net/minecraft/server/level/ThreadedLevelLightEngine") && minsn.name.equals("m_9409_")) {
-                            InsnList lightDrainList = new InsnList();
-                            for (int i = 0; i < 64; i++) {
-                                lightDrainList.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                                lightDrainList.add(new FieldInsnNode(Opcodes.GETFIELD, "io/izzel/arclight/common/mixin/core/server/level/ServerChunkCache_MainThreadExecutorMixin", "outer", "Lnet/minecraft/server/level/ServerChunkCache;"));
-                                lightDrainList.add(new TypeInsnNode(Opcodes.CHECKCAST, "io/izzel/arclight/common/bridge/core/world/server/ServerChunkProviderBridge"));
-                                lightDrainList.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE, "io/izzel/arclight/common/bridge/core/world/server/ServerChunkProviderBridge", "bridge$getLightManager", "()Lnet/minecraft/server/level/ThreadedLevelLightEngine;", true));
-                                lightDrainList.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/server/level/ThreadedLevelLightEngine", "m_9323_", "()I", false));
-                                lightDrainList.add(new InsnNode(Opcodes.POP));
-                            }
-                            mn.instructions.insert(minsn, lightDrainList);
-                            System.out.println("Injected 64-cycle lighting burst drain into ServerChunkCache_MainThreadExecutorMixin.m_7245_");
-                        } else if (minsn.owner.equals("net/minecraft/util/thread/BlockableEventLoop") && minsn.name.equals("m_7245_")) {
+                        if (minsn.owner.equals("net/minecraft/util/thread/BlockableEventLoop") && minsn.name.equals("m_7245_")) {
                             AbstractInsnNode nextNode = insn.getNext();
                             if (nextNode instanceof VarInsnNode && nextNode.getOpcode() == Opcodes.ISTORE) {
                                 // Add 511 consecutive drains without branching
@@ -289,6 +277,7 @@ public class ArclightPatcher {
 
                                 mn.instructions.insert(nextNode, drainList);
                                 System.out.println("Injected 512-task batch chunk event loop drain into ServerChunkCache_MainThreadExecutorMixin.m_7245_");
+                                break;
                             }
                         }
                     }
