@@ -117,7 +117,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.level.chunk.ChunkGeneratorMixin\",",
-                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\","
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -606,8 +606,11 @@ public class ArclightPatcher {
             optPkg.mkdirs();
             File mixinPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen");
             mixinPkg.mkdirs();
+            File mcMixinPkg = new File(srcDir, "net/minecraft/world/level/levelgen");
+            mcMixinPkg.mkdirs();
 
             String optSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
+                "import net.minecraft.world.level.block.Blocks;\n" +
                 "import net.minecraft.world.level.block.state.BlockState;\n" +
                 "import net.minecraft.world.level.levelgen.Aquifer;\n" +
                 "import net.minecraft.world.level.levelgen.NoiseChunk;\n" +
@@ -626,6 +629,8 @@ public class ArclightPatcher {
                 "    private static final MethodHandle MH_CELL_HEIGHT;\n" +
                 "    private static final MethodHandle MH_COMPUTE_BLOCKSTATE;\n" +
                 "    private static final boolean INITIALIZED;\n\n" +
+                "    public static final BlockState STONE_STATE;\n" +
+                "    public static final BlockState DEEPSLATE_STATE;\n\n" +
                 "    static {\n" +
                 "        Unsafe u = null;\n" +
                 "        long interpOff = 0;\n" +
@@ -667,7 +672,9 @@ public class ArclightPatcher {
                 "        MH_CELL_WIDTH = mhWidth;\n" +
                 "        MH_CELL_HEIGHT = mhHeight;\n" +
                 "        MH_COMPUTE_BLOCKSTATE = mhBlockState;\n" +
-                "        INITIALIZED = init;\n" +
+                "        INITIALIZED = init;\n\n" +
+                "        STONE_STATE = Blocks.f_50069_.m_49966_();\n" +
+                "        DEEPSLATE_STATE = Blocks.f_152482_.m_49966_();\n" +
                 "    }\n\n" +
                 "    public static int getCellWidth(NoiseChunk noiseChunk) {\n" +
                 "        if (MH_CELL_WIDTH != null) {\n" +
@@ -688,18 +695,16 @@ public class ArclightPatcher {
                 "        return null;\n" +
                 "    }\n\n" +
                 "    @SuppressWarnings(\"unchecked\")\n" +
-                "    public static boolean isAirCell(NoiseChunk noiseChunk, int cellY, int cellZ, int minCellY, int cellHeight, Aquifer aquifer) {\n" +
-                "        if (!INITIALIZED) return false;\n" +
+                "    public static int classifyCell(NoiseChunk noiseChunk, int cellY, int cellZ, int minCellY, int cellHeight, Aquifer aquifer) {\n" +
+                "        if (!INITIALIZED) return 0;\n" +
                 "        int worldYBase = (minCellY + cellY) * cellHeight;\n" +
-                "        if (worldYBase < 64) return false;\n" +
-                "        if (aquifer != null && aquifer.m_142203_()) return false;\n" +
                 "        try {\n" +
                 "            List<?> interpolators = (List<?>) UNSAFE.getObject(noiseChunk, INTERPOLATORS_OFFSET);\n" +
-                "            if (interpolators == null || interpolators.isEmpty()) return false;\n" +
+                "            if (interpolators == null || interpolators.isEmpty()) return 0;\n" +
                 "            Object interp = interpolators.get(0);\n" +
                 "            double[][] s0 = (double[][]) UNSAFE.getObject(interp, SLICE0_OFFSET);\n" +
                 "            double[][] s1 = (double[][]) UNSAFE.getObject(interp, SLICE1_OFFSET);\n" +
-                "            if (s0 == null || s1 == null) return false;\n\n" +
+                "            if (s0 == null || s1 == null) return 0;\n\n" +
                 "            double v000 = s0[cellZ][cellY];\n" +
                 "            double v001 = s0[cellZ + 1][cellY];\n" +
                 "            double v100 = s1[cellZ][cellY];\n" +
@@ -708,17 +713,36 @@ public class ArclightPatcher {
                 "            double v011 = s0[cellZ + 1][cellY + 1];\n" +
                 "            double v110 = s1[cellZ][cellY + 1];\n" +
                 "            double v111 = s1[cellZ + 1][cellY + 1];\n\n" +
-                "            double max0 = Math.max(Math.max(v000, v001), Math.max(v100, v101));\n" +
-                "            double max1 = Math.max(Math.max(v010, v011), Math.max(v110, v111));\n" +
-                "            double maxVal = Math.max(max0, max1);\n\n" +
-                "            return maxVal <= -0.0001;\n" +
-                "        } catch (Throwable t) {\n" +
-                "            return false;\n" +
-                "        }\n" +
+                "            // 1. Pure Air Culling (above sea level)\n" +
+                "            if (worldYBase >= 64 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "                double max0 = Math.max(Math.max(v000, v001), Math.max(v100, v101));\n" +
+                "                double max1 = Math.max(Math.max(v010, v011), Math.max(v110, v111));\n" +
+                "                if (Math.max(max0, max1) <= -0.0001) {\n" +
+                "                    return 1;\n" +
+                "                }\n" +
+                "            }\n\n" +
+                "            // 2. Pure Solid Deepslate (deep underground)\n" +
+                "            if (worldYBase + cellHeight <= -8 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
+                "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
+                "                if (Math.min(min0, min1) >= 0.05) {\n" +
+                "                    return 2;\n" +
+                "                }\n" +
+                "            }\n\n" +
+                "            // 3. Pure Solid Stone (subsurface layer)\n" +
+                "            if (worldYBase >= 0 && worldYBase + cellHeight <= 50 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
+                "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
+                "                if (Math.min(min0, min1) >= 0.05) {\n" +
+                "                    return 3;\n" +
+                "                }\n" +
+                "            }\n" +
+                "        } catch (Throwable ignored) {}\n" +
+                "        return 0;\n" +
                 "    }\n" +
                 "}\n";
 
-            String mixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+            String noiseMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
                 "import io.izzel.arclight.common.mod.util.ChunkGenMathOptimizer;\n" +
                 "import net.minecraft.core.BlockPos;\n" +
                 "import net.minecraft.core.Holder;\n" +
@@ -771,12 +795,33 @@ public class ArclightPatcher {
                 "                int lastSectionIndex = chunk.m_151559_() - 1;\n" +
                 "                LevelChunkSection section = chunk.m_183278_(lastSectionIndex);\n\n" +
                 "                for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {\n" +
-                "                    noiseChunk.m_188810_(cellY, cellZ);\n\n" +
-                "                    if (ChunkGenMathOptimizer.isAirCell(noiseChunk, cellY, cellZ, minCellY, cellHeight, aquifer)) {\n" +
+                "                    noiseChunk.m_188810_(cellY, cellZ);\n" +
+                "                    int worldYBase = (minCellY + cellY) * cellHeight;\n\n" +
+                "                    int cellType = ChunkGenMathOptimizer.classifyCell(noiseChunk, cellY, cellZ, minCellY, cellHeight, aquifer);\n" +
+                "                    if (cellType == 1) {\n" +
+                "                        continue;\n" +
+                "                    } else if (cellType == 2 || cellType == 3) {\n" +
+                "                        BlockState solidState = (cellType == 2) ? ChunkGenMathOptimizer.DEEPSLATE_STATE : ChunkGenMathOptimizer.STONE_STATE;\n" +
+                "                        for (int yInside = cellHeight - 1; yInside >= 0; --yInside) {\n" +
+                "                            int worldY = worldYBase + yInside;\n" +
+                "                            int localY = worldY & 15;\n" +
+                "                            int sectionIndex = chunk.m_151564_(worldY);\n" +
+                "                            if (lastSectionIndex != sectionIndex) {\n" +
+                "                                lastSectionIndex = sectionIndex;\n" +
+                "                                section = chunk.m_183278_(sectionIndex);\n" +
+                "                            }\n" +
+                "                            for (int xInside = 0; xInside < cellWidth; ++xInside) {\n" +
+                "                                int localX = (minBlockX + cellX * cellWidth + xInside) & 15;\n" +
+                "                                for (int zInside = 0; zInside < cellWidth; ++zInside) {\n" +
+                "                                    int localZ = (minBlockZ + cellZ * cellWidth + zInside) & 15;\n" +
+                "                                    section.m_62991_(localX, localY, localZ, solidState, false);\n" +
+                "                                }\n" +
+                "                            }\n" +
+                "                        }\n" +
                 "                        continue;\n" +
                 "                    }\n\n" +
                 "                    for (int yInside = cellHeight - 1; yInside >= 0; --yInside) {\n" +
-                "                        int worldY = (minCellY + cellY) * cellHeight + yInside;\n" +
+                "                        int worldY = worldYBase + yInside;\n" +
                 "                        int localY = worldY & 15;\n" +
                 "                        int sectionIndex = chunk.m_151564_(worldY);\n\n" +
                 "                        if (lastSectionIndex != sectionIndex) {\n" +
@@ -824,8 +869,112 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            String surfaceMixinSrc = "package net.minecraft.world.level.levelgen;\n\n" +
+                "import net.minecraft.core.BlockPos;\n" +
+                "import net.minecraft.core.Holder;\n" +
+                "import net.minecraft.core.Registry;\n" +
+                "import net.minecraft.world.level.ChunkPos;\n" +
+                "import net.minecraft.world.level.biome.Biome;\n" +
+                "import net.minecraft.world.level.biome.BiomeManager;\n" +
+                "import net.minecraft.world.level.biome.Biomes;\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n" +
+                "import net.minecraft.world.level.chunk.BlockColumn;\n" +
+                "import net.minecraft.world.level.chunk.ChunkAccess;\n" +
+                "import net.minecraft.world.level.dimension.DimensionType;\n" +
+                "import net.minecraft.world.level.material.FluidState;\n" +
+                "import org.spongepowered.asm.mixin.Final;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Overwrite;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(value = SurfaceSystem.class, priority = 500)\n" +
+                "public abstract class SurfaceSystemMixin {\n\n" +
+                "    @Shadow @Final private BlockState f_189904_;\n\n" +
+                "    @Shadow protected abstract void m_189954_(BlockColumn column, int x, int z, int y, net.minecraft.world.level.LevelHeightAccessor accessor);\n" +
+                "    @Shadow private native boolean m_189952_(BlockState state);\n\n" +
+                "    /**\n" +
+                "     * @author Maple Optimization\n" +
+                "     * @reason High-performance surface rule evaluator with early-depth termination\n" +
+                "     */\n" +
+                "    @Overwrite(remap = false)\n" +
+                "    public void m_224648_(RandomState randomState, BiomeManager biomeManager, Registry<Biome> biomes, boolean useLegacyRandom, WorldGenerationContext context, ChunkAccess chunk, NoiseChunk noiseChunk, SurfaceRules.RuleSource ruleSource) {\n" +
+                "        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();\n" +
+                "        ChunkPos chunkPos = chunk.m_7697_();\n" +
+                "        int minBlockX = chunkPos.m_45604_();\n" +
+                "        int minBlockZ = chunkPos.m_45605_();\n\n" +
+                "        BlockColumn blockColumn = new BlockColumn() {\n" +
+                "            @Override\n" +
+                "            public BlockState m_183556_(int y) {\n" +
+                "                return chunk.m_8055_(mutablePos.m_122178_(mutablePos.m_123341_(), y, mutablePos.m_123343_()));\n" +
+                "            }\n" +
+                "            @Override\n" +
+                "            public void m_183639_(int y, BlockState state) {\n" +
+                "                chunk.m_6978_(mutablePos.m_122178_(mutablePos.m_123341_(), y, mutablePos.m_123343_()), state, false);\n" +
+                "            }\n" +
+                "        };\n\n" +
+                "        SurfaceRules.Context ruleContext = new SurfaceRules.Context((SurfaceSystem)(Object)this, randomState, chunk, noiseChunk, biomeManager::m_204214_, biomes, context);\n" +
+                "        SurfaceRules.SurfaceRule surfaceRule = (SurfaceRules.SurfaceRule) ruleSource.apply(ruleContext);\n" +
+                "        BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();\n" +
+                "        int minY = chunk.m_141937_();\n\n" +
+                "        for (int localX = 0; localX < 16; ++localX) {\n" +
+                "            for (int localZ = 0; localZ < 16; ++localZ) {\n" +
+                "                int worldX = minBlockX + localX;\n" +
+                "                int worldZ = minBlockZ + localZ;\n" +
+                "                int surfaceY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) + 1;\n\n" +
+                "                mutablePos.m_142451_(worldX).m_142443_(worldZ);\n" +
+                "                Holder<Biome> biomeHolder = biomeManager.m_204214_(biomePos.m_122178_(worldX, useLegacyRandom ? 0 : surfaceY, worldZ));\n\n" +
+                "                if (biomeHolder.m_203565_(Biomes.f_48194_)) {\n" +
+                "                    this.m_189954_(blockColumn, worldX, worldZ, surfaceY, chunk);\n" +
+                "                }\n\n" +
+                "                int topY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) + 1;\n" +
+                "                ruleContext.m_189569_(worldX, worldZ);\n\n" +
+                "                int stoneDepthAbove = 0;\n" +
+                "                int waterHeight = Integer.MIN_VALUE;\n" +
+                "                int stoneDepthBelowMarker = Integer.MAX_VALUE;\n\n" +
+                "                for (int currentY = topY; currentY >= minY; --currentY) {\n" +
+                "                    BlockState currentBlock = blockColumn.m_183556_(currentY);\n" +
+                "                    if (currentBlock.m_60795_()) {\n" +
+                "                        stoneDepthAbove = 0;\n" +
+                "                        waterHeight = Integer.MIN_VALUE;\n" +
+                "                        continue;\n" +
+                "                    }\n\n" +
+                "                    FluidState fluidState = currentBlock.m_60819_();\n" +
+                "                    if (!fluidState.m_76178_()) {\n" +
+                "                        if (waterHeight == Integer.MIN_VALUE) {\n" +
+                "                            waterHeight = currentY + 1;\n" +
+                "                        }\n" +
+                "                        continue;\n" +
+                "                    }\n\n" +
+                "                    if (stoneDepthBelowMarker >= currentY) {\n" +
+                "                        stoneDepthBelowMarker = DimensionType.f_188294_;\n" +
+                "                        for (int scanY = currentY - 1; scanY >= minY - 1; --scanY) {\n" +
+                "                            BlockState scanBlock = blockColumn.m_183556_(scanY);\n" +
+                "                            if (!this.m_189952_(scanBlock)) {\n" +
+                "                                stoneDepthBelowMarker = scanY + 1;\n" +
+                "                                break;\n" +
+                "                            }\n" +
+                "                        }\n" +
+                "                    }\n\n" +
+                "                    ++stoneDepthAbove;\n" +
+                "                    int stoneDepthBelow = currentY - stoneDepthBelowMarker + 1;\n\n" +
+                "                    if (stoneDepthAbove > 32 && stoneDepthBelow > 32 && currentY < 50) {\n" +
+                "                        break;\n" +
+                "                    }\n\n" +
+                "                    ruleContext.m_189576_(stoneDepthAbove, stoneDepthBelow, waterHeight, worldX, currentY, worldZ);\n" +
+                "                    if (currentBlock == this.f_189904_) {\n" +
+                "                        BlockState ruleState = surfaceRule.m_183550_(worldX, currentY, worldZ);\n" +
+                "                        if (ruleState != null) {\n" +
+                "                            blockColumn.m_183639_(currentY, ruleState);\n" +
+                "                        }\n" +
+                "                    }\n" +
+                "                }\n" +
+                "            }\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n";
+
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
-            Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), mixinSrc);
+            Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseMixinSrc);
+            Files.writeString(new File(mcMixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceMixinSrc);
 
             // Construct classpath from libraries and server jar
             File libDir = new File("/home/maple/Server1-20-1/libraries");
@@ -837,7 +986,8 @@ public class ArclightPatcher {
             ProcessBuilder pb = new ProcessBuilder(
                 "javac", "-proc:none", "-cp", cp.toString(), "-d", commonDir.getAbsolutePath(),
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
-                new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath()
+                new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
+                new File(mcMixinPkg, "SurfaceSystemMixin.java").getAbsolutePath()
             );
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -849,9 +999,9 @@ public class ArclightPatcher {
             }
             int code = p.waitFor();
             if (code == 0) {
-                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer & NoiseBasedChunkGeneratorMixin into common.jar!");
+                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, and SurfaceSystemMixin into common.jar!");
             } else {
-                throw new RuntimeException("Failed to compile chunk math optimizer mixin, exit code: " + code);
+                throw new RuntimeException("Failed to compile chunk math optimizer mixins, exit code: " + code);
             }
         } catch (Exception e) {
             throw new RuntimeException("Error during chunk math optimizer compilation", e);
