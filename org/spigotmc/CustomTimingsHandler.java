@@ -28,40 +28,40 @@ public class CustomTimingsHandler {
     private long curTickTotal = 0L;
     private long violations = 0L;
 
-    public CustomTimingsHandler(@NotNull String name) {
-        this(name, null);
+    public CustomTimingsHandler(@NotNull String string) {
+        this(string, null);
     }
 
-    public CustomTimingsHandler(@NotNull String name, @Nullable CustomTimingsHandler parent) {
-        this.name = name;
-        this.parent = parent;
+    public CustomTimingsHandler(@NotNull String string, @Nullable CustomTimingsHandler customTimingsHandler) {
+        this.name = string;
+        this.parent = customTimingsHandler;
         HANDLERS.add(this);
     }
 
     public static void printTimings(@NotNull PrintStream printStream) {
         printStream.println("Minecraft");
-        for (CustomTimingsHandler timings : HANDLERS) {
-            long time = timings.totalTime;
-            long count = timings.count;
-            if (count == 0L) continue;
-            long avg = time / count;
-            printStream.println("    " + timings.name + " Time: " + time + " Count: " + count + " Avg: " + avg + " Violations: " + timings.violations);
+        for (CustomTimingsHandler customTimingsHandler : HANDLERS) {
+            long l = customTimingsHandler.totalTime;
+            long l2 = customTimingsHandler.count;
+            if (l2 == 0L) continue;
+            long l3 = l / l2;
+            printStream.println("    " + customTimingsHandler.name + " Time: " + l + " Count: " + l2 + " Avg: " + l3 + " Violations: " + customTimingsHandler.violations);
         }
         printStream.println("# Version " + Bukkit.getVersion());
-        int entities = 0;
-        int livingEntities = 0;
+        int n = 0;
+        int n2 = 0;
         for (World world : Bukkit.getWorlds()) {
-            entities += world.getEntities().size();
-            livingEntities += world.getLivingEntities().size();
+            n += world.getEntities().size();
+            n2 += world.getLivingEntities().size();
         }
-        printStream.println("# Entities " + entities);
-        printStream.println("# LivingEntities " + livingEntities);
+        printStream.println("# Entities " + n);
+        printStream.println("# LivingEntities " + n2);
     }
 
     public static void reload() {
         if (timingsEnabled) {
-            for (CustomTimingsHandler timings : HANDLERS) {
-                timings.reset();
+            for (CustomTimingsHandler customTimingsHandler : HANDLERS) {
+                customTimingsHandler.reset();
             }
         }
         TimingsCommand.timingStart = System.nanoTime();
@@ -69,12 +69,12 @@ public class CustomTimingsHandler {
 
     public static void tick() {
         if (timingsEnabled) {
-            for (CustomTimingsHandler timings : HANDLERS) {
-                if (timings.curTickTotal > 50000000L) {
-                    timings.violations = (long)((double)timings.violations + Math.ceil(timings.curTickTotal / 50000000L));
+            for (CustomTimingsHandler customTimingsHandler : HANDLERS) {
+                if (customTimingsHandler.curTickTotal > 50000000L) {
+                    customTimingsHandler.violations = (long)((double)customTimingsHandler.violations + Math.ceil(customTimingsHandler.curTickTotal / 50000000L));
                 }
-                timings.curTickTotal = 0L;
-                timings.timingDepth = 0L;
+                customTimingsHandler.curTickTotal = 0L;
+                customTimingsHandler.timingDepth = 0L;
             }
         }
     }
@@ -93,9 +93,9 @@ public class CustomTimingsHandler {
             if (--this.timingDepth != 0L || this.start == 0L) {
                 return;
             }
-            long diff = System.nanoTime() - this.start;
-            this.totalTime += diff;
-            this.curTickTotal += diff;
+            long l = System.nanoTime() - this.start;
+            this.totalTime += l;
+            this.curTickTotal += l;
             ++this.count;
             this.start = 0L;
             if (this.parent != null) {

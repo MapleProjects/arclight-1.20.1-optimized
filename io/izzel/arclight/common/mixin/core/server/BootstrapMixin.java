@@ -25,7 +25,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value={Bootstrap.class})
 public class BootstrapMixin {
     @Inject(method={"bootStrap"}, at={@At(value="HEAD")})
-    private static void arclight$replaceWhitelist(CallbackInfo ci) {
+    private static void arclight$replaceWhitelist(CallbackInfo callbackInfo) {
+        System.setProperty("max.bg.threads", String.valueOf(Math.max(Runtime.getRuntime().availableProcessors(), 16)));
+        System.setProperty("paper.max-chunk-sends-per-tick", "512");
         if (new LinkageError().getStackTrace()[2].toString().contains("util.CraftLegacy")) {
             try {
                 Field field = CraftLegacy.class.getDeclaredField("whitelistedStates");

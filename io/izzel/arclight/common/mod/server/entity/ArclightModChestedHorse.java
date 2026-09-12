@@ -21,7 +21,7 @@ extends CraftChestedHorse {
     }
 
     @Override
-    public  @NotNull Horse.Variant getVariant() {
+    public @NotNull Horse.Variant getVariant() {
         return Horse.Variant.HORSE;
     }
 

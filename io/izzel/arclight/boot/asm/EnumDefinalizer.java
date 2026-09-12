@@ -1,0 +1,44 @@
+/*
+ * Decompiled with CFR 0.152.
+ * 
+ * Could not load the following classes:
+ *  cpw.mods.modlauncher.serviceapi.ILaunchPluginService$ITransformerLoader
+ *  org.objectweb.asm.tree.ClassNode
+ *  org.objectweb.asm.tree.FieldNode
+ */
+package io.izzel.arclight.boot.asm;
+
+import cpw.mods.modlauncher.serviceapi.ILaunchPluginService;
+import io.izzel.arclight.boot.asm.ArclightImplementer;
+import io.izzel.arclight.boot.asm.Implementer;
+import java.lang.reflect.Modifier;
+import java.util.Set;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldNode;
+
+public class EnumDefinalizer
+implements Implementer {
+    static final Set<String> ENUM = Set.of("org/bukkit/Material", "org/bukkit/potion/PotionType", "org/bukkit/entity/EntityType", "org/bukkit/entity/Villager$Profession", "org/bukkit/block/Biome", "org/bukkit/Art", "org/bukkit/Statistic", "org/bukkit/inventory/CreativeCategory", "org/bukkit/entity/SpawnCategory", "org/bukkit/entity/EnderDragon$Phase", "org/bukkit/inventory/recipe/CookingBookCategory", "org/bukkit/Fluid", "org/bukkit/entity/Spellcaster$Spell", "org/bukkit/entity/Pose");
+
+    @Override
+    public boolean processClass(ClassNode node, ILaunchPluginService.ITransformerLoader transformerLoader) {
+        if (ENUM.contains(node.name)) {
+            boolean find = false;
+            for (FieldNode field : node.fields) {
+                if (!Modifier.isStatic(field.access) || !Modifier.isFinal(field.access) || !field.name.equals("ENUM$VALUES")) continue;
+                field.access &= 0xFFFFFFEF;
+                ArclightImplementer.LOGGER.debug("Definalize enum class {} values field {}", (Object)node.name, (Object)field.name);
+                if (find) {
+                    throw new IllegalStateException("Duplicate static final field found for " + node.name + ": " + field.name);
+                }
+                find = true;
+            }
+            if (!find) {
+                throw new IllegalStateException("No static final field found for " + node.name);
+            }
+            return true;
+        }
+        return false;
+    }
+}
+

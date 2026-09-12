@@ -18,7 +18,6 @@ import com.google.common.graph.GraphBuilder;
 import com.google.common.graph.Graphs;
 import com.google.common.graph.MutableGraph;
 import java.io.File;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -65,6 +64,7 @@ import org.bukkit.plugin.UnknownDependencyException;
 import org.bukkit.util.FileUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.spigotmc.CustomTimingsHandler;
 
 public final class SimplePluginManager
 implements PluginManager {
@@ -81,9 +81,9 @@ implements PluginManager {
     private final Map<Boolean, Map<Permissible, Boolean>> defSubs = new HashMap<Boolean, Map<Permissible, Boolean>>();
     private boolean useTimings = false;
 
-    public SimplePluginManager(@NotNull Server instance, @NotNull SimpleCommandMap commandMap) {
-        this.server = instance;
-        this.commandMap = commandMap;
+    public SimplePluginManager(@NotNull Server server, @NotNull SimpleCommandMap simpleCommandMap) {
+        this.server = server;
+        this.commandMap = simpleCommandMap;
         this.defaultPerms.put(true, new LinkedHashSet());
         this.defaultPerms.put(false, new LinkedHashSet());
     }
@@ -92,233 +92,227 @@ implements PluginManager {
      * WARNING - Removed try catching itself - possible behaviour change.
      */
     @Override
-    public void registerInterface(@NotNull Class<? extends PluginLoader> loader) throws IllegalArgumentException {
-        PluginLoader instance;
-        if (PluginLoader.class.isAssignableFrom(loader)) {
+    public void registerInterface(@NotNull Class<? extends PluginLoader> clazz) throws IllegalArgumentException {
+        SimplePluginManager simplePluginManager;
+        PluginLoader pluginLoader;
+        Pattern[] patternArray;
+        if (PluginLoader.class.isAssignableFrom(clazz)) {
             try {
-                Constructor<? extends PluginLoader> constructor = loader.getConstructor(Server.class);
-                instance = constructor.newInstance(this.server);
+                patternArray = clazz.getConstructor(Server.class);
+                pluginLoader = patternArray.newInstance(this.server);
             }
-            catch (NoSuchMethodException ex) {
-                String className = loader.getName();
-                throw new IllegalArgumentException(String.format("Class %s does not have a public %s(Server) constructor", className, className), ex);
+            catch (NoSuchMethodException noSuchMethodException) {
+                String string = clazz.getName();
+                throw new IllegalArgumentException(String.format("Class %s does not have a public %s(Server) constructor", string, string), noSuchMethodException);
             }
-            catch (Exception ex) {
-                throw new IllegalArgumentException(String.format("Unexpected exception %s while attempting to construct a new instance of %s", ex.getClass().getName(), loader.getName()), ex);
+            catch (Exception exception) {
+                throw new IllegalArgumentException(String.format("Unexpected exception %s while attempting to construct a new instance of %s", exception.getClass().getName(), clazz.getName()), exception);
             }
         } else {
-            throw new IllegalArgumentException(String.format("Class %s does not implement interface PluginLoader", loader.getName()));
+            throw new IllegalArgumentException(String.format("Class %s does not implement interface PluginLoader", clazz.getName()));
         }
-        Pattern[] patterns = instance.getPluginFileFilters();
-        SimplePluginManager simplePluginManager = this;
-        synchronized (simplePluginManager) {
-            Pattern[] patternArray = patterns;
-            int n = patterns.length;
-            int n2 = 0;
-            while (n2 < n) {
-                Pattern pattern = patternArray[n2];
-                this.fileAssociations.put(pattern, instance);
-                ++n2;
+        patternArray = pluginLoader.getPluginFileFilters();
+        SimplePluginManager simplePluginManager2 = simplePluginManager = this;
+        synchronized (simplePluginManager2) {
+            Pattern[] patternArray2 = patternArray;
+            int n = patternArray.length;
+            for (int i = 0; i < n; ++i) {
+                Pattern pattern = patternArray2[i];
+                this.fileAssociations.put(pattern, pluginLoader);
             }
         }
     }
 
     @Override
     @NotNull
-    public Plugin[] loadPlugins(@NotNull File directory) {
-        Preconditions.checkArgument((directory != null ? 1 : 0) != 0, (Object)"Directory cannot be null");
-        Preconditions.checkArgument((boolean)directory.isDirectory(), (Object)"Directory must be a directory");
-        ArrayList<Plugin> result = new ArrayList<Plugin>();
-        Set<Pattern> filters = this.fileAssociations.keySet();
+    public Plugin[] loadPlugins(@NotNull File file) {
+        Object object;
+        Object object2;
+        String string;
+        List<String> invalidPluginException;
+        Map.Entry entry;
+        Preconditions.checkArgument((file != null ? 1 : 0) != 0, (Object)"Directory cannot be null");
+        Preconditions.checkArgument((boolean)file.isDirectory(), (Object)"Directory must be a directory");
+        ArrayList<Plugin> arrayList = new ArrayList<Plugin>();
+        Set<Pattern> set = this.fileAssociations.keySet();
         if (!this.server.getUpdateFolder().equals("")) {
-            this.updateDirectory = new File(directory, this.server.getUpdateFolder());
+            this.updateDirectory = new File(file, this.server.getUpdateFolder());
         }
-        HashMap<String, File> plugins = new HashMap<String, File>();
-        HashSet<String> loadedPlugins = new HashSet<String>();
-        HashMap<String, String> pluginsProvided = new HashMap<String, String>();
-        HashMap<String, LinkedList<String>> dependencies = new HashMap<String, LinkedList<String>>();
-        HashMap softDependencies = new HashMap();
-        File[] fileArray = directory.listFiles();
-        int n = fileArray.length;
-        int n2 = 0;
-        while (n2 < n) {
-            block38: {
-                List<String> loadBeforeSet;
-                List<String> dependencySet;
-                String removedProvided;
-                PluginDescriptionFile description;
-                File file;
-                block39: {
-                    file = fileArray[n2];
-                    PluginLoader loader = null;
-                    for (Pattern filter : filters) {
-                        Matcher match = filter.matcher(file.getName());
-                        if (!match.find()) continue;
-                        loader = this.fileAssociations.get(filter);
-                    }
-                    if (loader == null) break block38;
-                    description = null;
-                    try {
-                        description = loader.getPluginDescription(file);
-                        String name = description.getName();
-                        if (name.equalsIgnoreCase("bukkit") || name.equalsIgnoreCase("minecraft") || name.equalsIgnoreCase("mojang")) {
-                            this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "': Restricted Name");
-                            break block38;
-                        }
-                        if (description.rawName.indexOf(32) != -1) {
-                            this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "': uses the space-character (0x20) in its name");
-                        }
-                        break block39;
-                    }
-                    catch (InvalidDescriptionException ex) {
-                        this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "'", ex);
-                    }
-                    break block38;
+        HashMap<String, File> hashMap = new HashMap<String, File>();
+        HashSet<String> hashSet = new HashSet<String>();
+        HashMap<String, String> hashMap2 = new HashMap<String, String>();
+        HashMap hashMap3 = new HashMap();
+        HashMap<Object, Object> hashMap4 = new HashMap<Object, Object>();
+        for (File iterator : file.listFiles()) {
+            Object object3;
+            PluginDescriptionFile pluginDescriptionFile;
+            Object object42;
+            block36: {
+                entry = null;
+                for (Pattern pattern : set) {
+                    object42 = pattern.matcher(iterator.getName());
+                    if (!((Matcher)object42).find()) continue;
+                    entry = this.fileAssociations.get(pattern);
                 }
-                File replacedFile = plugins.put(description.getName(), file);
-                if (replacedFile != null) {
-                    this.server.getLogger().severe(String.format("Ambiguous plugin name `%s' for files `%s' and `%s' in `%s'", description.getName(), file.getPath(), replacedFile.getPath(), directory.getPath()));
-                }
-                if ((removedProvided = (String)pluginsProvided.remove(description.getName())) != null) {
-                    this.server.getLogger().warning(String.format("Ambiguous plugin name `%s'. It is also provided by `%s'", description.getName(), removedProvided));
-                }
-                for (String provided : description.getProvides()) {
-                    File pluginFile = (File)plugins.get(provided);
-                    if (pluginFile != null) {
-                        this.server.getLogger().warning(String.format("`%s provides `%s' while this is also the name of `%s' in `%s'", file.getPath(), provided, pluginFile.getPath(), directory.getPath()));
+                if (entry == null) continue;
+                pluginDescriptionFile = null;
+                try {
+                    pluginDescriptionFile = entry.getPluginDescription(iterator);
+                    invalidPluginException = pluginDescriptionFile.getName();
+                    if (((String)((Object)invalidPluginException)).equalsIgnoreCase("bukkit") || ((String)((Object)invalidPluginException)).equalsIgnoreCase("minecraft") || ((String)((Object)invalidPluginException)).equalsIgnoreCase("mojang")) {
+                        this.server.getLogger().log(Level.SEVERE, "Could not load '" + iterator.getPath() + "' in folder '" + file.getPath() + "': Restricted Name");
                         continue;
                     }
-                    String replacedPlugin = pluginsProvided.put(provided, description.getName());
-                    if (replacedPlugin == null) continue;
-                    this.server.getLogger().warning(String.format("`%s' is provided by both `%s' and `%s'", provided, description.getName(), replacedPlugin));
+                    if (pluginDescriptionFile.rawName.indexOf(32) == -1) break block36;
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + iterator.getPath() + "' in folder '" + file.getPath() + "': uses the space-character (0x20) in its name");
                 }
-                List<String> softDependencySet = description.getSoftDepend();
-                if (softDependencySet != null && !softDependencySet.isEmpty()) {
-                    if (softDependencies.containsKey(description.getName())) {
-                        ((Collection)softDependencies.get(description.getName())).addAll(softDependencySet);
-                    } else {
-                        softDependencies.put(description.getName(), new LinkedList<String>(softDependencySet));
-                    }
-                    for (String depend : softDependencySet) {
-                        this.dependencyGraph.putEdge(description.getName(), depend);
-                    }
-                }
-                if ((dependencySet = description.getDepend()) != null && !dependencySet.isEmpty()) {
-                    dependencies.put(description.getName(), new LinkedList<String>(dependencySet));
-                    for (String depend : dependencySet) {
-                        this.dependencyGraph.putEdge(description.getName(), depend);
-                    }
-                }
-                if ((loadBeforeSet = description.getLoadBefore()) != null && !loadBeforeSet.isEmpty()) {
-                    for (String loadBeforeTarget : loadBeforeSet) {
-                        if (softDependencies.containsKey(loadBeforeTarget)) {
-                            ((Collection)softDependencies.get(loadBeforeTarget)).add(description.getName());
-                        } else {
-                            LinkedList<String> shortSoftDependency = new LinkedList<String>();
-                            shortSoftDependency.add(description.getName());
-                            softDependencies.put(loadBeforeTarget, shortSoftDependency);
-                        }
-                        this.dependencyGraph.putEdge(loadBeforeTarget, description.getName());
-                    }
+                catch (InvalidDescriptionException invalidDescriptionException) {
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + iterator.getPath() + "' in folder '" + file.getPath() + "'", invalidDescriptionException);
+                    continue;
                 }
             }
-            ++n2;
+            entry = hashMap.put(pluginDescriptionFile.getName(), iterator);
+            if (entry != null) {
+                this.server.getLogger().severe(String.format("Ambiguous plugin name `%s' for files `%s' and `%s' in `%s'", pluginDescriptionFile.getName(), iterator.getPath(), ((File)((Object)entry)).getPath(), file.getPath()));
+            }
+            if ((string = (String)hashMap2.remove(pluginDescriptionFile.getName())) != null) {
+                this.server.getLogger().warning(String.format("Ambiguous plugin name `%s'. It is also provided by `%s'", pluginDescriptionFile.getName(), string));
+            }
+            for (String string2 : pluginDescriptionFile.getProvides()) {
+                object42 = (File)hashMap.get(string2);
+                if (object42 != null) {
+                    this.server.getLogger().warning(String.format("`%s provides `%s' while this is also the name of `%s' in `%s'", iterator.getPath(), string2, ((File)object42).getPath(), file.getPath()));
+                    continue;
+                }
+                object3 = hashMap2.put(string2, pluginDescriptionFile.getName());
+                if (object3 == null) continue;
+                this.server.getLogger().warning(String.format("`%s' is provided by both `%s' and `%s'", string2, pluginDescriptionFile.getName(), object3));
+            }
+            invalidPluginException = pluginDescriptionFile.getSoftDepend();
+            if (invalidPluginException != null && !invalidPluginException.isEmpty()) {
+                if (hashMap4.containsKey(pluginDescriptionFile.getName())) {
+                    ((Collection)hashMap4.get(pluginDescriptionFile.getName())).addAll(invalidPluginException);
+                } else {
+                    hashMap4.put(pluginDescriptionFile.getName(), new LinkedList(invalidPluginException));
+                }
+                for (Object object42 : invalidPluginException) {
+                    this.dependencyGraph.putEdge((Object)pluginDescriptionFile.getName(), object42);
+                }
+            }
+            if ((object2 = pluginDescriptionFile.getDepend()) != null && !object2.isEmpty()) {
+                hashMap3.put(pluginDescriptionFile.getName(), new LinkedList(object2));
+                Iterator iterator2 = object2.iterator();
+                while (iterator2.hasNext()) {
+                    object42 = (String)iterator2.next();
+                    this.dependencyGraph.putEdge((Object)pluginDescriptionFile.getName(), object42);
+                }
+            }
+            if ((object = pluginDescriptionFile.getLoadBefore()) == null || object.isEmpty()) continue;
+            Iterator iterator3 = object.iterator();
+            while (iterator3.hasNext()) {
+                object42 = (String)iterator3.next();
+                if (hashMap4.containsKey(object42)) {
+                    ((Collection)hashMap4.get(object42)).add(pluginDescriptionFile.getName());
+                } else {
+                    object3 = new LinkedList();
+                    ((LinkedList)object3).add(pluginDescriptionFile.getName());
+                    hashMap4.put(object42, object3);
+                }
+                this.dependencyGraph.putEdge(object42, (Object)pluginDescriptionFile.getName());
+            }
         }
-        while (!plugins.isEmpty()) {
-            Plugin loadedPlugin;
-            File file;
-            String plugin;
-            boolean missingDependency = true;
-            Iterator<Map.Entry<String, File>> pluginIterator = plugins.entrySet().iterator();
-            while (pluginIterator.hasNext()) {
-                Map.Entry<String, File> entry = pluginIterator.next();
-                plugin = entry.getKey();
-                if (dependencies.containsKey(plugin)) {
-                    Iterator dependencyIterator = ((Collection)dependencies.get(plugin)).iterator();
-                    while (dependencyIterator.hasNext()) {
-                        String dependency = (String)dependencyIterator.next();
-                        if (loadedPlugins.contains(dependency)) {
-                            dependencyIterator.remove();
+        while (!hashMap.isEmpty()) {
+            boolean bl = true;
+            Iterator iterator = hashMap.entrySet().iterator();
+            while (iterator.hasNext()) {
+                entry = iterator.next();
+                string = (String)entry.getKey();
+                if (hashMap3.containsKey(string)) {
+                    invalidPluginException = ((Collection)hashMap3.get(string)).iterator();
+                    while (invalidPluginException.hasNext()) {
+                        String string3 = (String)invalidPluginException.next();
+                        if (hashSet.contains(string3)) {
+                            invalidPluginException.remove();
                             continue;
                         }
-                        if (plugins.containsKey(dependency) || pluginsProvided.containsKey(dependency)) continue;
-                        missingDependency = false;
-                        pluginIterator.remove();
-                        softDependencies.remove(plugin);
-                        dependencies.remove(plugin);
-                        this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)entry.getValue()).getPath() + "' in folder '" + directory.getPath() + "'", new UnknownDependencyException("Unknown dependency " + dependency + ". Please download and install " + dependency + " to run this plugin."));
+                        if (hashMap.containsKey(string3) || hashMap2.containsKey(string3)) continue;
+                        bl = false;
+                        iterator.remove();
+                        hashMap4.remove(string);
+                        hashMap3.remove(string);
+                        this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)entry.getValue()).getPath() + "' in folder '" + file.getPath() + "'", new UnknownDependencyException("Unknown dependency " + string3 + ". Please download and install " + string3 + " to run this plugin."));
                         break;
                     }
-                    if (dependencies.containsKey(plugin) && ((Collection)dependencies.get(plugin)).isEmpty()) {
-                        dependencies.remove(plugin);
+                    if (hashMap3.containsKey(string) && ((Collection)hashMap3.get(string)).isEmpty()) {
+                        hashMap3.remove(string);
                     }
                 }
-                if (softDependencies.containsKey(plugin)) {
-                    Iterator softDependencyIterator = ((Collection)softDependencies.get(plugin)).iterator();
-                    while (softDependencyIterator.hasNext()) {
-                        String softDependency = (String)softDependencyIterator.next();
-                        if (plugins.containsKey(softDependency) || pluginsProvided.containsKey(softDependency)) continue;
-                        softDependencyIterator.remove();
+                if (hashMap4.containsKey(string)) {
+                    invalidPluginException = ((Collection)hashMap4.get(string)).iterator();
+                    while (invalidPluginException.hasNext()) {
+                        String string4 = (String)invalidPluginException.next();
+                        if (hashMap.containsKey(string4) || hashMap2.containsKey(string4)) continue;
+                        invalidPluginException.remove();
                     }
-                    if (((Collection)softDependencies.get(plugin)).isEmpty()) {
-                        softDependencies.remove(plugin);
+                    if (((Collection)hashMap4.get(string)).isEmpty()) {
+                        hashMap4.remove(string);
                     }
                 }
-                if (dependencies.containsKey(plugin) || softDependencies.containsKey(plugin) || !plugins.containsKey(plugin)) continue;
-                file = (File)plugins.get(plugin);
-                pluginIterator.remove();
-                missingDependency = false;
+                if (hashMap3.containsKey(string) || hashMap4.containsKey(string) || !hashMap.containsKey(string)) continue;
+                object2 = (File)hashMap.get(string);
+                iterator.remove();
+                bl = false;
                 try {
-                    loadedPlugin = this.loadPlugin(file);
-                    if (loadedPlugin != null) {
-                        result.add(loadedPlugin);
-                        loadedPlugins.add(loadedPlugin.getName());
-                        loadedPlugins.addAll(loadedPlugin.getDescription().getProvides());
+                    object = this.loadPlugin((File)object2);
+                    if (object != null) {
+                        arrayList.add((Plugin)object);
+                        hashSet.add(object.getName());
+                        hashSet.addAll(object.getDescription().getProvides());
                         continue;
                     }
-                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "'");
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)object2).getPath() + "' in folder '" + file.getPath() + "'");
                 }
-                catch (InvalidPluginException ex) {
-                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "'", ex);
+                catch (InvalidPluginException invalidPluginException2) {
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)object2).getPath() + "' in folder '" + file.getPath() + "'", invalidPluginException2);
                 }
             }
-            if (!missingDependency) continue;
-            pluginIterator = plugins.entrySet().iterator();
-            while (pluginIterator.hasNext()) {
-                Map.Entry<String, File> entry = pluginIterator.next();
-                plugin = entry.getKey();
-                if (dependencies.containsKey(plugin)) continue;
-                softDependencies.remove(plugin);
-                missingDependency = false;
-                file = (File)entry.getValue();
-                pluginIterator.remove();
+            if (!bl) continue;
+            Iterator iterator4 = hashMap.entrySet().iterator();
+            while (iterator4.hasNext()) {
+                entry = iterator4.next();
+                string = (String)entry.getKey();
+                if (hashMap3.containsKey(string)) continue;
+                hashMap4.remove(string);
+                bl = false;
+                object2 = (File)entry.getValue();
+                iterator4.remove();
                 try {
-                    loadedPlugin = this.loadPlugin(file);
-                    if (loadedPlugin != null) {
-                        result.add(loadedPlugin);
-                        loadedPlugins.add(loadedPlugin.getName());
-                        loadedPlugins.addAll(loadedPlugin.getDescription().getProvides());
+                    object = this.loadPlugin((File)object2);
+                    if (object != null) {
+                        arrayList.add((Plugin)object);
+                        hashSet.add(object.getName());
+                        hashSet.addAll(object.getDescription().getProvides());
                         break;
                     }
-                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "'");
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)object2).getPath() + "' in folder '" + file.getPath() + "'");
                     break;
                 }
-                catch (InvalidPluginException ex) {
-                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + file.getPath() + "' in folder '" + directory.getPath() + "'", ex);
+                catch (InvalidPluginException invalidPluginException3) {
+                    this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)object2).getPath() + "' in folder '" + file.getPath() + "'", invalidPluginException3);
                 }
             }
-            if (!missingDependency) continue;
-            softDependencies.clear();
-            dependencies.clear();
-            Iterator failedPluginIterator = plugins.values().iterator();
-            while (failedPluginIterator.hasNext()) {
-                File file2 = (File)failedPluginIterator.next();
-                failedPluginIterator.remove();
-                this.server.getLogger().log(Level.SEVERE, "Could not load '" + file2.getPath() + "' in folder '" + directory.getPath() + "': circular dependency detected");
+            if (!bl) continue;
+            hashMap4.clear();
+            hashMap3.clear();
+            entry = hashMap.values().iterator();
+            while (entry.hasNext()) {
+                invalidPluginException = (File)entry.next();
+                entry.remove();
+                this.server.getLogger().log(Level.SEVERE, "Could not load '" + ((File)((Object)invalidPluginException)).getPath() + "' in folder '" + file.getPath() + "': circular dependency detected");
             }
         }
         TimingsCommand.timingStart = System.nanoTime();
-        return result.toArray(new Plugin[result.size()]);
+        return arrayList.toArray(new Plugin[arrayList.size()]);
     }
 
     @Override
@@ -326,39 +320,39 @@ implements PluginManager {
     public synchronized Plugin loadPlugin(@NotNull File file) throws InvalidPluginException, UnknownDependencyException {
         Preconditions.checkArgument((file != null ? 1 : 0) != 0, (Object)"File cannot be null");
         this.checkUpdate(file);
-        Set<Pattern> filters = this.fileAssociations.keySet();
-        Plugin result = null;
-        for (Pattern filter : filters) {
-            String name;
-            Matcher match = filter.matcher(name = file.getName());
-            if (!match.find()) continue;
-            PluginLoader loader = this.fileAssociations.get(filter);
-            result = loader.loadPlugin(file);
+        Set<Pattern> set = this.fileAssociations.keySet();
+        Plugin plugin = null;
+        for (Pattern object : set) {
+            String string;
+            Matcher matcher = object.matcher(string = file.getName());
+            if (!matcher.find()) continue;
+            PluginLoader pluginLoader = this.fileAssociations.get(object);
+            plugin = pluginLoader.loadPlugin(file);
         }
-        if (result != null) {
-            this.plugins.add(result);
-            this.lookupNames.put(result.getDescription().getName(), result);
-            for (String provided : result.getDescription().getProvides()) {
-                this.lookupNames.putIfAbsent(provided, result);
+        if (plugin != null) {
+            this.plugins.add(plugin);
+            this.lookupNames.put(plugin.getDescription().getName(), plugin);
+            for (String string : plugin.getDescription().getProvides()) {
+                this.lookupNames.putIfAbsent(string, plugin);
             }
         }
-        return result;
+        return plugin;
     }
 
     private void checkUpdate(@NotNull File file) {
         if (this.updateDirectory == null || !this.updateDirectory.isDirectory()) {
             return;
         }
-        File updateFile = new File(this.updateDirectory, file.getName());
-        if (updateFile.isFile() && FileUtil.copy(updateFile, file)) {
-            updateFile.delete();
+        File file2 = new File(this.updateDirectory, file.getName());
+        if (file2.isFile() && FileUtil.copy(file2, file)) {
+            file2.delete();
         }
     }
 
     @Override
     @Nullable
-    public synchronized Plugin getPlugin(@NotNull String name) {
-        return this.lookupNames.get(name.replace(' ', '_'));
+    public synchronized Plugin getPlugin(@NotNull String string) {
+        return this.lookupNames.get(string.replace(' ', '_'));
     }
 
     @Override
@@ -368,8 +362,8 @@ implements PluginManager {
     }
 
     @Override
-    public boolean isPluginEnabled(@NotNull String name) {
-        Plugin plugin = this.getPlugin(name);
+    public boolean isPluginEnabled(@NotNull String string) {
+        Plugin plugin = this.getPlugin(string);
         return this.isPluginEnabled(plugin);
     }
 
@@ -384,15 +378,15 @@ implements PluginManager {
     @Override
     public void enablePlugin(@NotNull Plugin plugin) {
         if (!plugin.isEnabled()) {
-            List<Command> pluginCommands = PluginCommandYamlParser.parse(plugin);
-            if (!pluginCommands.isEmpty()) {
-                this.commandMap.registerAll(plugin.getDescription().getName(), pluginCommands);
+            List<Command> list = PluginCommandYamlParser.parse(plugin);
+            if (!list.isEmpty()) {
+                this.commandMap.registerAll(plugin.getDescription().getName(), list);
             }
             try {
                 plugin.getPluginLoader().enablePlugin(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while enabling " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while enabling " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             HandlerList.bakeAll();
         }
@@ -400,11 +394,9 @@ implements PluginManager {
 
     @Override
     public void disablePlugins() {
-        Plugin[] plugins = this.getPlugins();
-        int i = plugins.length - 1;
-        while (i >= 0) {
-            this.disablePlugin(plugins[i]);
-            --i;
+        Plugin[] pluginArray = this.getPlugins();
+        for (int i = pluginArray.length - 1; i >= 0; --i) {
+            this.disablePlugin(pluginArray[i]);
         }
     }
 
@@ -414,41 +406,41 @@ implements PluginManager {
             try {
                 plugin.getPluginLoader().disablePlugin(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while disabling " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while disabling " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             try {
                 this.server.getScheduler().cancelTasks(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while cancelling tasks for " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while cancelling tasks for " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             try {
                 this.server.getServicesManager().unregisterAll(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering services for " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering services for " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             try {
                 HandlerList.unregisterAll(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering events for " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering events for " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             try {
                 this.server.getMessenger().unregisterIncomingPluginChannel(plugin);
                 this.server.getMessenger().unregisterOutgoingPluginChannel(plugin);
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering plugin channels for " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while unregistering plugin channels for " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
             try {
                 for (World world : this.server.getWorlds()) {
                     world.removePluginChunkTickets(plugin);
                 }
             }
-            catch (Throwable ex) {
-                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while removing chunk tickets for " + plugin.getDescription().getFullName() + " (Is it up to date?)", ex);
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Error occurred (in the plugin loader) while removing chunk tickets for " + plugin.getDescription().getFullName() + " (Is it up to date?)", throwable);
             }
         }
     }
@@ -458,8 +450,9 @@ implements PluginManager {
      */
     @Override
     public void clearPlugins() {
-        SimplePluginManager simplePluginManager = this;
-        synchronized (simplePluginManager) {
+        SimplePluginManager simplePluginManager;
+        SimplePluginManager simplePluginManager2 = simplePluginManager = this;
+        synchronized (simplePluginManager2) {
             this.disablePlugins();
             this.plugins.clear();
             this.lookupNames.clear();
@@ -480,30 +473,28 @@ implements PluginManager {
         if (!event.isAsynchronous() && !this.server.isPrimaryThread()) {
             return;
         }
-        HandlerList handlers = event.getHandlers();
-        RegisteredListener[] listeners = handlers.getRegisteredListeners();
-        if (listeners.length == 0) {
+        HandlerList handlerList = event.getHandlers();
+        RegisteredListener[] registeredListenerArray = handlerList.getRegisteredListeners();
+        if (registeredListenerArray.length == 0) {
             return;
         }
-        this.fireEvent(event, listeners);
+        this.fireEvent(event, registeredListenerArray);
     }
 
-    private void fireEvent(@NotNull Event event, RegisteredListener[] listeners) {
-        for (RegisteredListener registration : listeners) {
-            if (registration.getPlugin().isEnabled()) {
-                try {
-                    registration.callEvent(event);
-                }
-                catch (AuthorNagException ex) {
-                    Plugin plugin = registration.getPlugin();
-                    if (plugin.isNaggable()) {
-                        plugin.setNaggable(false);
-                        this.server.getLogger().log(Level.SEVERE, String.format("Nag author(s): '%s' of '%s' about the following: %s", plugin.getDescription().getAuthors(), plugin.getDescription().getFullName(), ex.getMessage()));
-                    }
-                }
-                catch (Throwable ex) {
-                    this.server.getLogger().log(Level.SEVERE, "Could not pass event " + event.getEventName() + " to " + registration.getPlugin().getDescription().getFullName(), ex);
-                }
+    private void fireEvent(@NotNull Event event, RegisteredListener[] registeredListenerArray) {
+        for (RegisteredListener registeredListener : registeredListenerArray) {
+            if (!registeredListener.getPlugin().isEnabled()) continue;
+            try {
+                registeredListener.callEvent(event);
+            }
+            catch (AuthorNagException authorNagException) {
+                Plugin plugin = registeredListener.getPlugin();
+                if (!plugin.isNaggable()) continue;
+                plugin.setNaggable(false);
+                this.server.getLogger().log(Level.SEVERE, String.format("Nag author(s): '%s' of '%s' about the following: %s", plugin.getDescription().getAuthors(), plugin.getDescription().getFullName(), authorNagException.getMessage()));
+            }
+            catch (Throwable throwable) {
+                this.server.getLogger().log(Level.SEVERE, "Could not pass event " + event.getEventName() + " to " + registeredListener.getPlugin().getDescription().getFullName(), throwable);
             }
         }
     }
@@ -511,7 +502,7 @@ implements PluginManager {
     @Override
     public void registerEvents(@NotNull Listener listener, @NotNull Plugin plugin) {
         if (!plugin.isEnabled()) {
-            throw new IllegalPluginAccessException("Plugin attempted to register " + listener + " while not enabled");
+            throw new IllegalPluginAccessException("Plugin attempted to register " + String.valueOf(listener) + " while not enabled");
         }
         for (Map.Entry<Class<? extends Event>, Set<RegisteredListener>> entry : plugin.getPluginLoader().createRegisteredListeners(listener, plugin).entrySet()) {
             this.getEventListeners(this.getRegistrationClass(entry.getKey())).registerAll((Collection<RegisteredListener>)entry.getValue());
@@ -519,38 +510,38 @@ implements PluginManager {
     }
 
     @Override
-    public void registerEvent(@NotNull Class<? extends Event> event, @NotNull Listener listener, @NotNull EventPriority priority, @NotNull EventExecutor executor, @NotNull Plugin plugin) {
-        this.registerEvent(event, listener, priority, executor, plugin, false);
+    public void registerEvent(@NotNull Class<? extends Event> clazz, @NotNull Listener listener, @NotNull EventPriority eventPriority, @NotNull EventExecutor eventExecutor, @NotNull Plugin plugin) {
+        this.registerEvent(clazz, listener, eventPriority, eventExecutor, plugin, false);
     }
 
     @Override
-    public void registerEvent(@NotNull Class<? extends Event> event, @NotNull Listener listener, @NotNull EventPriority priority, @NotNull EventExecutor executor, @NotNull Plugin plugin, boolean ignoreCancelled) {
+    public void registerEvent(@NotNull Class<? extends Event> clazz, @NotNull Listener listener, @NotNull EventPriority eventPriority, @NotNull EventExecutor eventExecutor, @NotNull Plugin plugin, boolean bl) {
         Preconditions.checkArgument((listener != null ? 1 : 0) != 0, (Object)"Listener cannot be null");
-        Preconditions.checkArgument((priority != null ? 1 : 0) != 0, (Object)"Priority cannot be null");
-        Preconditions.checkArgument((executor != null ? 1 : 0) != 0, (Object)"Executor cannot be null");
+        Preconditions.checkArgument((eventPriority != null ? 1 : 0) != 0, (Object)"Priority cannot be null");
+        Preconditions.checkArgument((eventExecutor != null ? 1 : 0) != 0, (Object)"Executor cannot be null");
         Preconditions.checkArgument((plugin != null ? 1 : 0) != 0, (Object)"Plugin cannot be null");
         if (!plugin.isEnabled()) {
-            throw new IllegalPluginAccessException("Plugin attempted to register " + event + " while not enabled");
+            throw new IllegalPluginAccessException("Plugin attempted to register " + String.valueOf(clazz) + " while not enabled");
         }
         if (this.useTimings) {
-            this.getEventListeners(event).register(new TimedRegisteredListener(listener, executor, priority, plugin, ignoreCancelled));
+            this.getEventListeners(clazz).register(new TimedRegisteredListener(listener, eventExecutor, eventPriority, plugin, bl));
         } else {
-            this.getEventListeners(event).register(new RegisteredListener(listener, executor, priority, plugin, ignoreCancelled));
+            this.getEventListeners(clazz).register(new RegisteredListener(listener, eventExecutor, eventPriority, plugin, bl));
         }
     }
 
     @NotNull
-    private HandlerList getEventListeners(@NotNull Class<? extends Event> type) {
+    private HandlerList getEventListeners(@NotNull Class<? extends Event> clazz) {
         try {
-            Method method = this.getRegistrationClass(type).getDeclaredMethod("getHandlerList", new Class[0]);
+            Method method = this.getRegistrationClass(clazz).getDeclaredMethod("getHandlerList", new Class[0]);
             method.setAccessible(true);
             if (!Modifier.isStatic(method.getModifiers())) {
                 throw new IllegalAccessException("getHandlerList must be static");
             }
             return (HandlerList)method.invoke(null, new Object[0]);
         }
-        catch (Exception e) {
-            throw new IllegalPluginAccessException("Error while registering listener for event type " + type.toString() + ": " + e.toString());
+        catch (Exception exception) {
+            throw new IllegalPluginAccessException("Error while registering listener for event type " + clazz.toString() + ": " + exception.toString());
         }
     }
 
@@ -560,7 +551,7 @@ implements PluginManager {
             clazz.getDeclaredMethod("getHandlerList", new Class[0]);
             return clazz;
         }
-        catch (NoSuchMethodException e) {
+        catch (NoSuchMethodException noSuchMethodException) {
             if (clazz.getSuperclass() != null && !clazz.getSuperclass().equals(Event.class) && Event.class.isAssignableFrom(clazz.getSuperclass())) {
                 return this.getRegistrationClass(clazz.getSuperclass().asSubclass(Event.class));
             }
@@ -570,60 +561,60 @@ implements PluginManager {
 
     @Override
     @Nullable
-    public Permission getPermission(@NotNull String name) {
-        return this.permissions.get(name.toLowerCase(Locale.ENGLISH));
+    public Permission getPermission(@NotNull String string) {
+        return this.permissions.get(string.toLowerCase(Locale.ENGLISH));
     }
 
     @Override
-    public void addPermission(@NotNull Permission perm) {
-        this.addPermission(perm, true);
+    public void addPermission(@NotNull Permission permission) {
+        this.addPermission(permission, true);
     }
 
     @Deprecated
-    public void addPermission(@NotNull Permission perm, boolean dirty) {
-        String name = perm.getName().toLowerCase(Locale.ENGLISH);
-        if (this.permissions.containsKey(name)) {
-            throw new IllegalArgumentException("The permission " + name + " is already defined!");
+    public void addPermission(@NotNull Permission permission, boolean bl) {
+        String string = permission.getName().toLowerCase(Locale.ENGLISH);
+        if (this.permissions.containsKey(string)) {
+            throw new IllegalArgumentException("The permission " + string + " is already defined!");
         }
-        this.permissions.put(name, perm);
-        this.calculatePermissionDefault(perm, dirty);
+        this.permissions.put(string, permission);
+        this.calculatePermissionDefault(permission, bl);
     }
 
     @Override
     @NotNull
-    public Set<Permission> getDefaultPermissions(boolean op) {
-        return ImmutableSet.copyOf((Collection)this.defaultPerms.get(op));
+    public Set<Permission> getDefaultPermissions(boolean bl) {
+        return ImmutableSet.copyOf((Collection)this.defaultPerms.get(bl));
     }
 
     @Override
-    public void removePermission(@NotNull Permission perm) {
-        this.removePermission(perm.getName());
+    public void removePermission(@NotNull Permission permission) {
+        this.removePermission(permission.getName());
     }
 
     @Override
-    public void removePermission(@NotNull String name) {
-        this.permissions.remove(name.toLowerCase(Locale.ENGLISH));
+    public void removePermission(@NotNull String string) {
+        this.permissions.remove(string.toLowerCase(Locale.ENGLISH));
     }
 
     @Override
-    public void recalculatePermissionDefaults(@NotNull Permission perm) {
-        if (perm != null && this.permissions.containsKey(perm.getName().toLowerCase(Locale.ENGLISH))) {
-            this.defaultPerms.get(true).remove(perm);
-            this.defaultPerms.get(false).remove(perm);
-            this.calculatePermissionDefault(perm, true);
+    public void recalculatePermissionDefaults(@NotNull Permission permission) {
+        if (permission != null && this.permissions.containsKey(permission.getName().toLowerCase(Locale.ENGLISH))) {
+            this.defaultPerms.get(true).remove(permission);
+            this.defaultPerms.get(false).remove(permission);
+            this.calculatePermissionDefault(permission, true);
         }
     }
 
-    private void calculatePermissionDefault(@NotNull Permission perm, boolean dirty) {
-        if (perm.getDefault() == PermissionDefault.OP || perm.getDefault() == PermissionDefault.TRUE) {
-            this.defaultPerms.get(true).add(perm);
-            if (dirty) {
+    private void calculatePermissionDefault(@NotNull Permission permission, boolean bl) {
+        if (permission.getDefault() == PermissionDefault.OP || permission.getDefault() == PermissionDefault.TRUE) {
+            this.defaultPerms.get(true).add(permission);
+            if (bl) {
                 this.dirtyPermissibles(true);
             }
         }
-        if (perm.getDefault() == PermissionDefault.NOT_OP || perm.getDefault() == PermissionDefault.TRUE) {
-            this.defaultPerms.get(false).add(perm);
-            if (dirty) {
+        if (permission.getDefault() == PermissionDefault.NOT_OP || permission.getDefault() == PermissionDefault.TRUE) {
+            this.defaultPerms.get(false).add(permission);
+            if (bl) {
                 this.dirtyPermissibles(false);
             }
         }
@@ -635,41 +626,41 @@ implements PluginManager {
         this.dirtyPermissibles(false);
     }
 
-    private void dirtyPermissibles(boolean op) {
-        Set<Permissible> permissibles = this.getDefaultPermSubscriptions(op);
-        for (Permissible p : permissibles) {
-            p.recalculatePermissions();
+    private void dirtyPermissibles(boolean bl) {
+        Set<Permissible> set = this.getDefaultPermSubscriptions(bl);
+        for (Permissible permissible : set) {
+            permissible.recalculatePermissions();
         }
     }
 
     @Override
-    public void subscribeToPermission(@NotNull String permission, @NotNull Permissible permissible) {
-        String name = permission.toLowerCase(Locale.ENGLISH);
-        Map<Permissible, Boolean> map = this.permSubs.get(name);
+    public void subscribeToPermission(@NotNull String string, @NotNull Permissible permissible) {
+        String string2 = string.toLowerCase(Locale.ENGLISH);
+        Map<Permissible, Boolean> map = this.permSubs.get(string2);
         if (map == null) {
             map = new WeakHashMap<Permissible, Boolean>();
-            this.permSubs.put(name, map);
+            this.permSubs.put(string2, map);
         }
         map.put(permissible, true);
     }
 
     @Override
-    public void unsubscribeFromPermission(@NotNull String permission, @NotNull Permissible permissible) {
-        String name = permission.toLowerCase(Locale.ENGLISH);
-        Map<Permissible, Boolean> map = this.permSubs.get(name);
+    public void unsubscribeFromPermission(@NotNull String string, @NotNull Permissible permissible) {
+        String string2 = string.toLowerCase(Locale.ENGLISH);
+        Map<Permissible, Boolean> map = this.permSubs.get(string2);
         if (map != null) {
             map.remove(permissible);
             if (map.isEmpty()) {
-                this.permSubs.remove(name);
+                this.permSubs.remove(string2);
             }
         }
     }
 
     @Override
     @NotNull
-    public Set<Permissible> getPermissionSubscriptions(@NotNull String permission) {
-        String name = permission.toLowerCase(Locale.ENGLISH);
-        Map<Permissible, Boolean> map = this.permSubs.get(name);
+    public Set<Permissible> getPermissionSubscriptions(@NotNull String string) {
+        String string2 = string.toLowerCase(Locale.ENGLISH);
+        Map<Permissible, Boolean> map = this.permSubs.get(string2);
         if (map == null) {
             return ImmutableSet.of();
         }
@@ -677,30 +668,30 @@ implements PluginManager {
     }
 
     @Override
-    public void subscribeToDefaultPerms(boolean op, @NotNull Permissible permissible) {
-        Map<Permissible, Boolean> map = this.defSubs.get(op);
+    public void subscribeToDefaultPerms(boolean bl, @NotNull Permissible permissible) {
+        Map<Permissible, Boolean> map = this.defSubs.get(bl);
         if (map == null) {
             map = new WeakHashMap<Permissible, Boolean>();
-            this.defSubs.put(op, map);
+            this.defSubs.put(bl, map);
         }
         map.put(permissible, true);
     }
 
     @Override
-    public void unsubscribeFromDefaultPerms(boolean op, @NotNull Permissible permissible) {
-        Map<Permissible, Boolean> map = this.defSubs.get(op);
+    public void unsubscribeFromDefaultPerms(boolean bl, @NotNull Permissible permissible) {
+        Map<Permissible, Boolean> map = this.defSubs.get(bl);
         if (map != null) {
             map.remove(permissible);
             if (map.isEmpty()) {
-                this.defSubs.remove(op);
+                this.defSubs.remove(bl);
             }
         }
     }
 
     @Override
     @NotNull
-    public Set<Permissible> getDefaultPermSubscriptions(boolean op) {
-        Map<Permissible, Boolean> map = this.defSubs.get(op);
+    public Set<Permissible> getDefaultPermSubscriptions(boolean bl) {
+        Map<Permissible, Boolean> map = this.defSubs.get(bl);
         if (map == null) {
             return ImmutableSet.of();
         }
@@ -713,16 +704,16 @@ implements PluginManager {
         return new HashSet<Permission>(this.permissions.values());
     }
 
-    public boolean isTransitiveDepend(@NotNull PluginDescriptionFile plugin, @NotNull PluginDescriptionFile depend) {
-        Preconditions.checkArgument((plugin != null ? 1 : 0) != 0, (Object)"plugin");
-        Preconditions.checkArgument((depend != null ? 1 : 0) != 0, (Object)"depend");
-        if (this.dependencyGraph.nodes().contains(plugin.getName())) {
-            Set<String> reachableNodes = Graphs.reachableNodes(this.dependencyGraph, plugin.getName());
-            if (reachableNodes.contains(depend.getName())) {
+    public boolean isTransitiveDepend(@NotNull PluginDescriptionFile pluginDescriptionFile, @NotNull PluginDescriptionFile pluginDescriptionFile2) {
+        Preconditions.checkArgument((pluginDescriptionFile != null ? 1 : 0) != 0, (Object)"plugin");
+        Preconditions.checkArgument((pluginDescriptionFile2 != null ? 1 : 0) != 0, (Object)"depend");
+        if (this.dependencyGraph.nodes().contains(pluginDescriptionFile.getName())) {
+            Set set = Graphs.reachableNodes(this.dependencyGraph, (Object)pluginDescriptionFile.getName());
+            if (set.contains(pluginDescriptionFile2.getName())) {
                 return true;
             }
-            for (String provided : depend.getProvides()) {
-                if (!reachableNodes.contains(provided)) continue;
+            for (String string : pluginDescriptionFile2.getProvides()) {
+                if (!set.contains(string)) continue;
                 return true;
             }
         }
@@ -734,9 +725,9 @@ implements PluginManager {
         return this.useTimings;
     }
 
-    public void useTimings(boolean use) {
-        this.useTimings = use;
-        org.spigotmc.CustomTimingsHandler.timingsEnabled = use;
+    public void useTimings(boolean bl) {
+        this.useTimings = bl;
+        CustomTimingsHandler.timingsEnabled = bl;
     }
 }
 

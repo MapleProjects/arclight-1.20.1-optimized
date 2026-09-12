@@ -22,7 +22,6 @@
  *  net.minecraft.world.item.ItemStack
  *  net.minecraft.world.level.Level
  *  net.minecraftforge.common.ForgeHooks
- *  net.minecraftforge.event.entity.living.LivingChangeTargetEvent
  *  net.minecraftforge.event.entity.living.LivingChangeTargetEvent$ILivingTargetType
  *  net.minecraftforge.event.entity.living.LivingChangeTargetEvent$LivingTargetType
  *  org.spongepowered.asm.mixin.Final
@@ -43,7 +42,6 @@ import io.izzel.arclight.common.bridge.core.entity.LivingEntityBridge;
 import io.izzel.arclight.common.bridge.core.entity.MobEntityBridge;
 import io.izzel.arclight.common.bridge.core.world.WorldBridge;
 import io.izzel.arclight.common.mixin.core.world.entity.LivingEntityMixin;
-import io.izzel.arclight.common.mod.ArclightMod;
 import io.izzel.arclight.mixin.Eject;
 import javax.annotation.Nullable;
 import net.minecraft.nbt.CompoundTag;
@@ -158,13 +156,13 @@ implements MobEntityBridge {
     protected abstract SoundEvent m_7515_();
 
     @Override
-    public void bridge$setAware(boolean aware) {
-        this.aware = aware;
+    public void bridge$setAware(boolean bl) {
+        this.aware = bl;
     }
 
     @Inject(method={"setCanPickUpLoot"}, at={@At(value="HEAD")})
-    public void arclight$setPickupLoot(boolean canPickup, CallbackInfo ci) {
-        this.bukkitPickUpLoot = canPickup;
+    public void arclight$setPickupLoot(boolean bl, CallbackInfo callbackInfo) {
+        this.bukkitPickUpLoot = bl;
     }
 
     @Overwrite
@@ -173,7 +171,7 @@ implements MobEntityBridge {
     }
 
     @Inject(method={"<init>"}, at={@At(value="RETURN")})
-    private void arclight$init(EntityType<? extends Mob> type, Level worldIn, CallbackInfo ci) {
+    private void arclight$init(EntityType<? extends Mob> entityType, Level level, CallbackInfo callbackInfo) {
         this.aware = true;
     }
 
@@ -183,44 +181,44 @@ implements MobEntityBridge {
 
     @Overwrite
     public void m_6710_(@Nullable LivingEntity livingEntity) {
-        boolean fireEvent = this.arclight$fireEvent;
+        boolean bl = this.arclight$fireEvent;
         this.arclight$fireEvent = false;
-        EntityTargetEvent.TargetReason reason = this.arclight$reason == null ? EntityTargetEvent.TargetReason.UNKNOWN : this.arclight$reason;
+        EntityTargetEvent.TargetReason targetReason = this.arclight$reason == null ? EntityTargetEvent.TargetReason.UNKNOWN : this.arclight$reason;
         this.arclight$reason = null;
         if (this.m_5448_() == livingEntity) {
             this.arclight$targetSuccess = false;
             return;
         }
-        if (fireEvent) {
-            if (reason == EntityTargetEvent.TargetReason.UNKNOWN && this.m_5448_() != null && livingEntity == null) {
-                reason = this.m_5448_().m_6084_() ? EntityTargetEvent.TargetReason.FORGOT_TARGET : EntityTargetEvent.TargetReason.TARGET_DIED;
+        if (bl) {
+            Object object;
+            if (targetReason == EntityTargetEvent.TargetReason.UNKNOWN && this.m_5448_() != null && livingEntity == null) {
+                EntityTargetEvent.TargetReason targetReason2 = targetReason = this.m_5448_().m_6084_() ? EntityTargetEvent.TargetReason.FORGOT_TARGET : EntityTargetEvent.TargetReason.TARGET_DIED;
             }
             if (Bukkit.getPluginManager().getPlugins().length > 0) {
-                CraftLivingEntity ctarget = null;
+                object = null;
                 if (livingEntity != null) {
-                    ctarget = ((LivingEntityBridge)livingEntity).bridge$getBukkitEntity();
+                    object = ((LivingEntityBridge)livingEntity).bridge$getBukkitEntity();
                 }
-                EntityTargetLivingEntityEvent event = new EntityTargetLivingEntityEvent((Entity)this.getBukkitEntity(), ctarget, reason);
-                Bukkit.getPluginManager().callEvent(event);
-                if (event.isCancelled()) {
+                EntityTargetLivingEntityEvent entityTargetLivingEntityEvent = new EntityTargetLivingEntityEvent((Entity)this.getBukkitEntity(), (org.bukkit.entity.LivingEntity)object, targetReason);
+                Bukkit.getPluginManager().callEvent(entityTargetLivingEntityEvent);
+                if (entityTargetLivingEntityEvent.isCancelled()) {
                     this.arclight$targetSuccess = false;
                     return;
                 }
-                livingEntity = event.getTarget() != null ? ((CraftLivingEntity)event.getTarget()).getHandle() : null;
+                LivingEntity livingEntity2 = livingEntity = entityTargetLivingEntityEvent.getTarget() != null ? ((CraftLivingEntity)entityTargetLivingEntityEvent.getTarget()).getHandle() : null;
             }
-            LivingChangeTargetEvent changeTargetEvent = ForgeHooks.onLivingChangeTarget((LivingEntity)(Object)this, (LivingEntity)livingEntity, (LivingChangeTargetEvent.ILivingTargetType)LivingChangeTargetEvent.LivingTargetType.MOB_TARGET);
-            if (changeTargetEvent.isCanceled()) {
+            if ((object = ForgeHooks.onLivingChangeTarget((LivingEntity)((LivingEntity)this), (LivingEntity)livingEntity, (LivingChangeTargetEvent.ILivingTargetType)LivingChangeTargetEvent.LivingTargetType.MOB_TARGET)).isCanceled()) {
                 this.arclight$targetSuccess = false;
                 return;
             }
-            livingEntity = changeTargetEvent.getNewTarget();
+            livingEntity = object.getNewTarget();
         }
         this.f_21362_ = livingEntity;
         this.arclight$targetSuccess = true;
     }
 
-    public boolean setTarget(LivingEntity livingEntity, EntityTargetEvent.TargetReason reason, boolean fireEvent) {
-        this.bridge$pushGoalTargetReason(reason, fireEvent);
+    public boolean setTarget(LivingEntity livingEntity, EntityTargetEvent.TargetReason targetReason, boolean bl) {
+        this.bridge$pushGoalTargetReason(targetReason, bl);
         this.m_6710_(livingEntity);
         return this.arclight$targetSuccess;
     }
@@ -231,45 +229,45 @@ implements MobEntityBridge {
     }
 
     @Override
-    public boolean bridge$setGoalTarget(LivingEntity livingEntity, EntityTargetEvent.TargetReason reason, boolean fireEvent) {
-        return this.setTarget(livingEntity, reason, fireEvent);
+    public boolean bridge$setGoalTarget(LivingEntity livingEntity, EntityTargetEvent.TargetReason targetReason, boolean bl) {
+        return this.setTarget(livingEntity, targetReason, bl);
     }
 
     @Override
-    public void bridge$pushGoalTargetReason(EntityTargetEvent.TargetReason reason, boolean fireEvent) {
-        this.arclight$reason = fireEvent ? reason : null;
-        this.arclight$fireEvent = fireEvent;
+    public void bridge$pushGoalTargetReason(EntityTargetEvent.TargetReason targetReason, boolean bl) {
+        this.arclight$reason = bl ? targetReason : null;
+        this.arclight$fireEvent = bl;
     }
 
     @Inject(method={"addAdditionalSaveData"}, at={@At(value="HEAD")})
-    private void arclight$setAware(CompoundTag compound, CallbackInfo ci) {
-        compound.m_128379_("Bukkit.Aware", this.aware);
+    private void arclight$setAware(CompoundTag compoundTag, CallbackInfo callbackInfo) {
+        compoundTag.m_128379_("Bukkit.Aware", this.aware);
     }
 
     @Inject(method={"readAdditionalSaveData"}, at={@At(value="HEAD")})
-    private void arclight$readAware(CompoundTag compound, CallbackInfo ci) {
-        if (compound.m_128441_("Bukkit.Aware")) {
-            this.aware = compound.m_128471_("Bukkit.Aware");
+    private void arclight$readAware(CompoundTag compoundTag, CallbackInfo callbackInfo) {
+        if (compoundTag.m_128441_("Bukkit.Aware")) {
+            this.aware = compoundTag.m_128471_("Bukkit.Aware");
         }
     }
 
     @Redirect(method={"readAdditionalSaveData"}, at=@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;setCanPickUpLoot(Z)V"))
-    public void arclight$setIfTrue(Mob mobEntity, boolean canPickup) {
-        if (canPickup) {
-            mobEntity.m_21553_(true);
+    public void arclight$setIfTrue(Mob mob, boolean bl) {
+        if (bl) {
+            mob.m_21553_(true);
         }
     }
 
     @Inject(method={"serverAiStep"}, cancellable=true, at={@At(value="HEAD")})
-    private void arclight$unaware(CallbackInfo ci) {
+    private void arclight$unaware(CallbackInfo callbackInfo) {
         if (!this.aware) {
             ++this.f_20891_;
-            ci.cancel();
+            callbackInfo.cancel();
         }
     }
 
     @Inject(method={"pickUpItem"}, at={@At(value="HEAD")})
-    private void arclight$captureItemEntity(ItemEntity itemEntity, CallbackInfo ci) {
+    private void arclight$captureItemEntity(ItemEntity itemEntity, CallbackInfo callbackInfo) {
         this.arclight$item = itemEntity;
     }
 
@@ -279,112 +277,113 @@ implements MobEntityBridge {
     }
 
     @Overwrite
-    public ItemStack m_255207_(ItemStack stack) {
-        boolean canPickup;
+    public ItemStack m_255207_(ItemStack itemStack) {
         ItemEntity itemEntity = this.arclight$item;
         this.arclight$item = null;
-        EquipmentSlot equipmentslottype = MobMixin.m_147233_(stack);
-        ItemStack itemstack = this.m_6844_(equipmentslottype);
-        boolean flag = this.m_7808_(stack, itemstack);
-        if (equipmentslottype.m_254934_() && !flag) {
-            equipmentslottype = EquipmentSlot.MAINHAND;
-            itemstack = this.m_6844_(equipmentslottype);
-            flag = itemstack.m_41619_();
+        EquipmentSlot equipmentSlot = MobMixin.m_147233_(itemStack);
+        ItemStack itemStack2 = this.m_6844_(equipmentSlot);
+        boolean bl = this.m_7808_(itemStack, itemStack2);
+        if (equipmentSlot.m_254934_() && !bl) {
+            equipmentSlot = EquipmentSlot.MAINHAND;
+            itemStack2 = this.m_6844_(equipmentSlot);
+            bl = itemStack2.m_41619_();
         }
-        boolean bl = canPickup = flag && this.m_7252_(stack);
+        boolean bl2 = bl && this.m_7252_(itemStack);
+        boolean bl3 = bl2;
         if (itemEntity != null) {
-            boolean bl2 = canPickup = !CraftEventFactory.callEntityPickupItemEvent((net.minecraft.world.entity.Entity)(Object)this, itemEntity, 0, !canPickup).isCancelled();
+            bl2 = !CraftEventFactory.callEntityPickupItemEvent((net.minecraft.world.entity.Entity)this, itemEntity, 0, !bl2).isCancelled();
+            boolean bl4 = bl2;
         }
-        if (canPickup) {
-            double d0 = this.m_21519_(equipmentslottype);
-            if (!itemstack.m_41619_() && (double)Math.max(this.f_19796_.m_188501_() - 0.1f, 0.0f) < d0) {
+        if (bl2) {
+            double d = this.m_21519_(equipmentSlot);
+            if (!itemStack2.m_41619_() && (double)Math.max(this.f_19796_.m_188501_() - 0.1f, 0.0f) < d) {
                 this.forceDrops = true;
-                this.m_19983_(itemstack);
+                this.m_19983_(itemStack2);
                 this.forceDrops = false;
             }
-            if (equipmentslottype.m_254934_() && stack.m_41613_() > 1) {
-                ItemStack itemstack1 = stack.m_255036_(1);
-                this.m_21468_(equipmentslottype, itemstack1);
-                return itemstack1;
+            if (equipmentSlot.m_254934_() && itemStack.m_41613_() > 1) {
+                ItemStack itemStack3 = itemStack.m_255036_(1);
+                this.m_21468_(equipmentSlot, itemStack3);
+                return itemStack3;
             }
-            this.m_21468_(equipmentslottype, stack);
-            return stack;
+            this.m_21468_(equipmentSlot, itemStack);
+            return itemStack;
         }
         return ItemStack.f_41583_;
     }
 
     @Inject(method={"interact"}, cancellable=true, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;dropLeash(ZZ)V")})
-    private void arclight$unleash(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (CraftEventFactory.callPlayerUnleashEntityEvent((Mob)(Object)this, player, hand).isCancelled()) {
-            ((ServerPlayer)player).f_8906_.m_9829_((Packet)new ClientboundSetEntityLinkPacket((net.minecraft.world.entity.Entity)(Object)this, this.m_21524_()));
-            cir.setReturnValue(InteractionResult.PASS);
+    private void arclight$unleash(Player player, InteractionHand interactionHand, CallbackInfoReturnable<InteractionResult> callbackInfoReturnable) {
+        if (CraftEventFactory.callPlayerUnleashEntityEvent((Mob)this, player, interactionHand).isCancelled()) {
+            ((ServerPlayer)player).f_8906_.m_9829_((Packet)new ClientboundSetEntityLinkPacket((net.minecraft.world.entity.Entity)this, this.m_21524_()));
+            callbackInfoReturnable.setReturnValue((Object)InteractionResult.PASS);
         }
     }
 
     @Inject(method={"checkAndHandleImportantInteractions"}, cancellable=true, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;setLeashedTo(Lnet/minecraft/world/entity/Entity;Z)V")})
-    private void arclight$leash(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (CraftEventFactory.callPlayerLeashEntityEvent((Mob)(Object)this, (net.minecraft.world.entity.Entity)player, player, hand).isCancelled()) {
-            ((ServerPlayer)player).f_8906_.m_9829_((Packet)new ClientboundSetEntityLinkPacket((net.minecraft.world.entity.Entity)(Object)this, this.m_21524_()));
-            cir.setReturnValue(InteractionResult.PASS);
+    private void arclight$leash(Player player, InteractionHand interactionHand, CallbackInfoReturnable<InteractionResult> callbackInfoReturnable) {
+        if (CraftEventFactory.callPlayerLeashEntityEvent((Mob)this, (net.minecraft.world.entity.Entity)player, player, interactionHand).isCancelled()) {
+            ((ServerPlayer)player).f_8906_.m_9829_((Packet)new ClientboundSetEntityLinkPacket((net.minecraft.world.entity.Entity)this, this.m_21524_()));
+            callbackInfoReturnable.setReturnValue((Object)InteractionResult.PASS);
         }
     }
 
     @Inject(method={"tickLeash"}, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;dropLeash(ZZ)V")})
-    public void arclight$unleash2(CallbackInfo ci) {
+    public void arclight$unleash2(CallbackInfo callbackInfo) {
         Bukkit.getPluginManager().callEvent(new EntityUnleashEvent(this.getBukkitEntity(), this.m_6084_() ? EntityUnleashEvent.UnleashReason.HOLDER_GONE : EntityUnleashEvent.UnleashReason.PLAYER_UNLEASH));
     }
 
     @Inject(method={"dropLeash"}, at={@At(value="INVOKE", shift=At.Shift.AFTER, target="Lnet/minecraft/world/entity/Mob;spawnAtLocation(Lnet/minecraft/world/level/ItemLike;)Lnet/minecraft/world/entity/item/ItemEntity;")})
-    public void arclight$leashDropPost(boolean sendPacket, boolean dropLead, CallbackInfo ci) {
+    public void arclight$leashDropPost(boolean bl, boolean bl2, CallbackInfo callbackInfo) {
         this.forceDrops = false;
     }
 
     @Inject(method={"dropLeash"}, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;spawnAtLocation(Lnet/minecraft/world/level/ItemLike;)Lnet/minecraft/world/entity/item/ItemEntity;")})
-    public void arclight$leashDropPre(boolean sendPacket, boolean dropLead, CallbackInfo ci) {
+    public void arclight$leashDropPre(boolean bl, boolean bl2, CallbackInfo callbackInfo) {
         this.forceDrops = true;
     }
 
     @Inject(method={"restoreLeashFromSave"}, at={@At(value="INVOKE", shift=At.Shift.AFTER, target="Lnet/minecraft/world/entity/Mob;spawnAtLocation(Lnet/minecraft/world/level/ItemLike;)Lnet/minecraft/world/entity/item/ItemEntity;")})
-    private void arclight$leashRestorePost(CallbackInfo ci) {
+    private void arclight$leashRestorePost(CallbackInfo callbackInfo) {
         this.forceDrops = false;
     }
 
     @Inject(method={"restoreLeashFromSave"}, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;spawnAtLocation(Lnet/minecraft/world/level/ItemLike;)Lnet/minecraft/world/entity/item/ItemEntity;")})
-    private void arclight$leashRestorePre(CallbackInfo ci) {
+    private void arclight$leashRestorePre(CallbackInfo callbackInfo) {
         this.forceDrops = true;
     }
 
     @Inject(method={"startRiding"}, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;dropLeash(ZZ)V")})
-    private void arclight$unleashRide(net.minecraft.world.entity.Entity entityIn, boolean force, CallbackInfoReturnable<Boolean> cir) {
+    private void arclight$unleashRide(net.minecraft.world.entity.Entity entity, boolean bl, CallbackInfoReturnable<Boolean> callbackInfoReturnable) {
         Bukkit.getPluginManager().callEvent(new EntityUnleashEvent(this.getBukkitEntity(), EntityUnleashEvent.UnleashReason.UNKNOWN));
     }
 
     @Inject(method={"removeAfterChangingDimensions"}, at={@At(value="INVOKE", target="Lnet/minecraft/world/entity/Mob;dropLeash(ZZ)V")})
-    private void arclight$unleashDead(CallbackInfo ci) {
+    private void arclight$unleashDead(CallbackInfo callbackInfo) {
         Bukkit.getPluginManager().callEvent(new EntityUnleashEvent(this.getBukkitEntity(), EntityUnleashEvent.UnleashReason.UNKNOWN));
     }
 
     @Eject(method={"convertTo"}, at=@At(value="INVOKE", target="Lnet/minecraft/world/level/Level;addFreshEntity(Lnet/minecraft/world/entity/Entity;)Z"))
-    private boolean arclight$copySpawn(Level world, net.minecraft.world.entity.Entity entityIn, CallbackInfoReturnable<Mob> cir) {
+    private boolean arclight$copySpawn(Level level, net.minecraft.world.entity.Entity entity, CallbackInfoReturnable<Mob> callbackInfoReturnable) {
         EntityTransformEvent.TransformReason transformReason = this.arclight$transform == null ? EntityTransformEvent.TransformReason.UNKNOWN : this.arclight$transform;
         this.arclight$transform = null;
-        if (CraftEventFactory.callEntityTransformEvent((LivingEntity)(Object)this, (LivingEntity)entityIn, transformReason).isCancelled()) {
-            cir.setReturnValue(null);
+        if (CraftEventFactory.callEntityTransformEvent((LivingEntity)this, (LivingEntity)entity, transformReason).isCancelled()) {
+            callbackInfoReturnable.setReturnValue(null);
             return false;
         }
-        return world.m_7967_(entityIn);
+        return level.m_7967_(entity);
     }
 
     @Inject(method={"convertTo"}, at={@At(value="RETURN")})
-    private <T extends Mob> void arclight$cleanReason(EntityType<T> p_233656_1_, boolean p_233656_2_, CallbackInfoReturnable<T> cir) {
+    private <T extends Mob> void arclight$cleanReason(EntityType<T> entityType, boolean bl, CallbackInfoReturnable<T> callbackInfoReturnable) {
         ((WorldBridge)this.m_9236_()).bridge$pushAddEntityReason(null);
         this.arclight$transform = null;
     }
 
-    public <T extends Mob> T convertTo(EntityType<T> entityType, boolean flag, EntityTransformEvent.TransformReason transformReason, CreatureSpawnEvent.SpawnReason spawnReason) {
+    public <T extends Mob> T convertTo(EntityType<T> entityType, boolean bl, EntityTransformEvent.TransformReason transformReason, CreatureSpawnEvent.SpawnReason spawnReason) {
         ((WorldBridge)this.m_9236_()).bridge$pushAddEntityReason(spawnReason);
         this.bridge$pushTransformReason(transformReason);
-        return this.m_21406_(entityType, flag);
+        return this.m_21406_(entityType, bl);
     }
 
     @Override
@@ -393,11 +392,11 @@ implements MobEntityBridge {
     }
 
     @Redirect(method={"doHurtTarget"}, at=@At(value="INVOKE", target="Lnet/minecraft/world/entity/Entity;setSecondsOnFire(I)V"))
-    public void arclight$attackCombust(net.minecraft.world.entity.Entity entity, int seconds) {
-        EntityCombustByEntityEvent combustEvent = new EntityCombustByEntityEvent(this.getBukkitEntity(), ((EntityBridge)entity).bridge$getBukkitEntity(), seconds);
-        Bukkit.getPluginManager().callEvent(combustEvent);
-        if (!combustEvent.isCancelled()) {
-            ((EntityBridge)entity).bridge$setOnFire(combustEvent.getDuration(), false);
+    public void arclight$attackCombust(net.minecraft.world.entity.Entity entity, int n) {
+        EntityCombustByEntityEvent entityCombustByEntityEvent = new EntityCombustByEntityEvent(this.getBukkitEntity(), ((EntityBridge)entity).bridge$getBukkitEntity(), n);
+        Bukkit.getPluginManager().callEvent(entityCombustByEntityEvent);
+        if (!entityCombustByEntityEvent.isCancelled()) {
+            ((EntityBridge)entity).bridge$setOnFire(entityCombustByEntityEvent.getDuration(), false);
         }
     }
 
@@ -411,13 +410,13 @@ implements MobEntityBridge {
         return this.f_21353_;
     }
 
-    public void setPersistenceRequired(boolean value) {
-        this.f_21353_ = value;
+    public void setPersistenceRequired(boolean bl) {
+        this.f_21353_ = bl;
     }
 
     @Override
-    public void bridge$setPersistenceRequired(boolean value) {
-        this.setPersistenceRequired(value);
+    public void bridge$setPersistenceRequired(boolean bl) {
+        this.setPersistenceRequired(bl);
     }
 }
 

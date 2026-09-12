@@ -20,7 +20,7 @@ Runnable {
     @Override
     public void run() {
         Runnable runnable;
-        int n = 64;
+        int n = 512;
         long l = System.nanoTime();
         while (--n >= 0 && (runnable = this.queue.poll()) != null) {
             try {
