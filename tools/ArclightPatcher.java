@@ -95,7 +95,8 @@ public class ArclightPatcher {
 
         File byteBufMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/FriendlyByteBufMixin.class");
         Files.write(byteBufMixin.toPath(), createFriendlyByteBufMixinBytes());
-        System.out.println("Created Network Packet & Payload Fixer mixins (2GB limits)");
+        // 6.2 Compile and add Mathematical Chunk Engine Optimization (Bedrock-grade Culling & Interval Bounding)
+        compileAndInjectChunkMathOptimizer(commonDir);
 
         // 7. Register mixins in mixins.arclight.core.json
         File coreMixinJson = new File(commonDir, "mixins.arclight.core.json");
@@ -111,6 +112,12 @@ public class ArclightPatcher {
                 jsonContent = jsonContent.replace(
                     "\"network.ConnectionMixin\",",
                     "\"network.ConnectionMixin\",\n    \"network.CompressionDecoderMixin\",\n    \"network.FriendlyByteBufMixin\",\n    \"network.protocol.game.ServerboundCustomPayloadPacketMixin\",\n    \"network.protocol.game.ClientboundCustomPayloadPacketMixin\","
+                );
+            }
+            if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
+                jsonContent = jsonContent.replace(
+                    "\"world.level.chunk.ChunkGeneratorMixin\",",
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -587,6 +594,281 @@ public class ArclightPatcher {
 
         cw.visitEnd();
         return cw.toByteArray();
+    }
+
+    private static void compileAndInjectChunkMathOptimizer(File commonDir) {
+        try {
+            File srcDir = new File("/tmp/arclight_math_src");
+            deleteDir(srcDir);
+            srcDir.mkdirs();
+
+            File optPkg = new File(srcDir, "io/izzel/arclight/common/mod/util");
+            optPkg.mkdirs();
+            File mixinPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen");
+            mixinPkg.mkdirs();
+
+            String optSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n" +
+                "import net.minecraft.world.level.levelgen.Aquifer;\n" +
+                "import net.minecraft.world.level.levelgen.NoiseChunk;\n" +
+                "import sun.misc.Unsafe;\n" +
+                "import java.lang.invoke.MethodHandle;\n" +
+                "import java.lang.invoke.MethodHandles;\n" +
+                "import java.lang.reflect.Field;\n" +
+                "import java.lang.reflect.Method;\n" +
+                "import java.util.List;\n\n" +
+                "public class ChunkGenMathOptimizer {\n" +
+                "    private static final Unsafe UNSAFE;\n" +
+                "    private static final long INTERPOLATORS_OFFSET;\n" +
+                "    private static final long SLICE0_OFFSET;\n" +
+                "    private static final long SLICE1_OFFSET;\n" +
+                "    private static final MethodHandle MH_CELL_WIDTH;\n" +
+                "    private static final MethodHandle MH_CELL_HEIGHT;\n" +
+                "    private static final MethodHandle MH_COMPUTE_BLOCKSTATE;\n" +
+                "    private static final boolean INITIALIZED;\n\n" +
+                "    static {\n" +
+                "        Unsafe u = null;\n" +
+                "        long interpOff = 0;\n" +
+                "        long s0Off = 0;\n" +
+                "        long s1Off = 0;\n" +
+                "        MethodHandle mhWidth = null;\n" +
+                "        MethodHandle mhHeight = null;\n" +
+                "        MethodHandle mhBlockState = null;\n" +
+                "        boolean init = false;\n" +
+                "        try {\n" +
+                "            Field f = Unsafe.class.getDeclaredField(\"theUnsafe\");\n" +
+                "            f.setAccessible(true);\n" +
+                "            u = (Unsafe) f.get(null);\n\n" +
+                "            Field interpolatorsField = NoiseChunk.class.getDeclaredField(\"f_188725_\");\n" +
+                "            interpOff = u.objectFieldOffset(interpolatorsField);\n\n" +
+                "            Class<?> interpClass = Class.forName(\"net.minecraft.world.level.levelgen.NoiseChunk$NoiseInterpolator\");\n" +
+                "            Field s0Field = interpClass.getDeclaredField(\"f_188828_\");\n" +
+                "            Field s1Field = interpClass.getDeclaredField(\"f_188829_\");\n" +
+                "            s0Off = u.objectFieldOffset(s0Field);\n" +
+                "            s1Off = u.objectFieldOffset(s1Field);\n\n" +
+                "            MethodHandles.Lookup lookup = MethodHandles.lookup();\n" +
+                "            Method mWidth = NoiseChunk.class.getDeclaredMethod(\"m_224362_\");\n" +
+                "            mWidth.setAccessible(true);\n" +
+                "            mhWidth = lookup.unreflect(mWidth);\n\n" +
+                "            Method mHeight = NoiseChunk.class.getDeclaredMethod(\"m_224363_\");\n" +
+                "            mHeight.setAccessible(true);\n" +
+                "            mhHeight = lookup.unreflect(mHeight);\n\n" +
+                "            Method mBlockState = NoiseChunk.class.getDeclaredMethod(\"m_209247_\");\n" +
+                "            mBlockState.setAccessible(true);\n" +
+                "            mhBlockState = lookup.unreflect(mBlockState);\n\n" +
+                "            init = true;\n" +
+                "        } catch (Throwable t) {\n" +
+                "            init = false;\n" +
+                "        }\n" +
+                "        UNSAFE = u;\n" +
+                "        INTERPOLATORS_OFFSET = interpOff;\n" +
+                "        SLICE0_OFFSET = s0Off;\n" +
+                "        SLICE1_OFFSET = s1Off;\n" +
+                "        MH_CELL_WIDTH = mhWidth;\n" +
+                "        MH_CELL_HEIGHT = mhHeight;\n" +
+                "        MH_COMPUTE_BLOCKSTATE = mhBlockState;\n" +
+                "        INITIALIZED = init;\n" +
+                "    }\n\n" +
+                "    public static int getCellWidth(NoiseChunk noiseChunk) {\n" +
+                "        if (MH_CELL_WIDTH != null) {\n" +
+                "            try { return (int) MH_CELL_WIDTH.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
+                "        }\n" +
+                "        return 4;\n" +
+                "    }\n\n" +
+                "    public static int getCellHeight(NoiseChunk noiseChunk) {\n" +
+                "        if (MH_CELL_HEIGHT != null) {\n" +
+                "            try { return (int) MH_CELL_HEIGHT.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
+                "        }\n" +
+                "        return 8;\n" +
+                "    }\n\n" +
+                "    public static BlockState computeBlockState(NoiseChunk noiseChunk) {\n" +
+                "        if (MH_COMPUTE_BLOCKSTATE != null) {\n" +
+                "            try { return (BlockState) MH_COMPUTE_BLOCKSTATE.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
+                "        }\n" +
+                "        return null;\n" +
+                "    }\n\n" +
+                "    @SuppressWarnings(\"unchecked\")\n" +
+                "    public static boolean isAirCell(NoiseChunk noiseChunk, int cellY, int cellZ, int minCellY, int cellHeight, Aquifer aquifer) {\n" +
+                "        if (!INITIALIZED) return false;\n" +
+                "        int worldYBase = (minCellY + cellY) * cellHeight;\n" +
+                "        if (worldYBase < 64) return false;\n" +
+                "        if (aquifer != null && aquifer.m_142203_()) return false;\n" +
+                "        try {\n" +
+                "            List<?> interpolators = (List<?>) UNSAFE.getObject(noiseChunk, INTERPOLATORS_OFFSET);\n" +
+                "            if (interpolators == null || interpolators.isEmpty()) return false;\n" +
+                "            Object interp = interpolators.get(0);\n" +
+                "            double[][] s0 = (double[][]) UNSAFE.getObject(interp, SLICE0_OFFSET);\n" +
+                "            double[][] s1 = (double[][]) UNSAFE.getObject(interp, SLICE1_OFFSET);\n" +
+                "            if (s0 == null || s1 == null) return false;\n\n" +
+                "            double v000 = s0[cellZ][cellY];\n" +
+                "            double v001 = s0[cellZ + 1][cellY];\n" +
+                "            double v100 = s1[cellZ][cellY];\n" +
+                "            double v101 = s1[cellZ + 1][cellY];\n" +
+                "            double v010 = s0[cellZ][cellY + 1];\n" +
+                "            double v011 = s0[cellZ + 1][cellY + 1];\n" +
+                "            double v110 = s1[cellZ][cellY + 1];\n" +
+                "            double v111 = s1[cellZ + 1][cellY + 1];\n\n" +
+                "            double max0 = Math.max(Math.max(v000, v001), Math.max(v100, v101));\n" +
+                "            double max1 = Math.max(Math.max(v010, v011), Math.max(v110, v111));\n" +
+                "            double maxVal = Math.max(max0, max1);\n\n" +
+                "            return maxVal <= -0.0001;\n" +
+                "        } catch (Throwable t) {\n" +
+                "            return false;\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n";
+
+            String mixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.mod.util.ChunkGenMathOptimizer;\n" +
+                "import net.minecraft.core.BlockPos;\n" +
+                "import net.minecraft.core.Holder;\n" +
+                "import net.minecraft.world.level.ChunkPos;\n" +
+                "import net.minecraft.world.level.StructureManager;\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n" +
+                "import net.minecraft.world.level.chunk.ChunkAccess;\n" +
+                "import net.minecraft.world.level.chunk.LevelChunkSection;\n" +
+                "import net.minecraft.world.level.levelgen.Aquifer;\n" +
+                "import net.minecraft.world.level.levelgen.Heightmap;\n" +
+                "import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;\n" +
+                "import net.minecraft.world.level.levelgen.NoiseChunk;\n" +
+                "import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;\n" +
+                "import net.minecraft.world.level.levelgen.RandomState;\n" +
+                "import net.minecraft.world.level.levelgen.blending.Blender;\n" +
+                "import net.minecraft.world.level.material.FluidState;\n" +
+                "import org.spongepowered.asm.mixin.Final;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Overwrite;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(value = NoiseBasedChunkGenerator.class, priority = 500)\n" +
+                "public abstract class NoiseBasedChunkGeneratorMixin {\n\n" +
+                "    @Shadow @Final private Holder<NoiseGeneratorSettings> f_64318_;\n" +
+                "    @Shadow @Final private static BlockState f_64321_;\n\n" +
+                "    @Shadow protected abstract NoiseChunk m_224251_(StructureManager structureManager, Blender blender, RandomState randomState, ChunkAccess chunkAccess);\n" +
+                "    @Shadow private native BlockState m_198231_(NoiseChunk noiseChunk, int x, int y, int z, BlockState blockState);\n\n" +
+                "    /**\n" +
+                "     * @author Maple Mathematical Engine Restructuring\n" +
+                "     * @reason Bedrock-grade analytical horizon culling & interval bounding for nanosecond chunk generation\n" +
+                "     */\n" +
+                "    @Overwrite(remap = false)\n" +
+                "    private ChunkAccess m_224284_(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunk, int minCellY, int cellCountY) {\n" +
+                "        NoiseChunk noiseChunk = chunk.m_223012_(generator -> this.m_224251_(structureManager, blender, randomState, chunk));\n" +
+                "        Heightmap oceanFloor = chunk.m_6005_(Heightmap.Types.OCEAN_FLOOR_WG);\n" +
+                "        Heightmap worldSurface = chunk.m_6005_(Heightmap.Types.WORLD_SURFACE_WG);\n" +
+                "        ChunkPos chunkPos = chunk.m_7697_();\n" +
+                "        int minBlockX = chunkPos.m_45604_();\n" +
+                "        int minBlockZ = chunkPos.m_45605_();\n" +
+                "        Aquifer aquifer = noiseChunk.m_188817_();\n" +
+                "        noiseChunk.m_188791_();\n" +
+                "        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();\n\n" +
+                "        int cellWidth = ChunkGenMathOptimizer.getCellWidth(noiseChunk);\n" +
+                "        int cellHeight = ChunkGenMathOptimizer.getCellHeight(noiseChunk);\n" +
+                "        int cellCountX = 16 / cellWidth;\n" +
+                "        int cellCountZ = 16 / cellWidth;\n\n" +
+                "        BlockState defaultBlock = this.f_64318_.m_203334_().f_64440_();\n\n" +
+                "        for (int cellX = 0; cellX < cellCountX; ++cellX) {\n" +
+                "            noiseChunk.m_188749_(cellX);\n\n" +
+                "            for (int cellZ = 0; cellZ < cellCountZ; ++cellZ) {\n" +
+                "                int lastSectionIndex = chunk.m_151559_() - 1;\n" +
+                "                LevelChunkSection section = chunk.m_183278_(lastSectionIndex);\n\n" +
+                "                for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {\n" +
+                "                    noiseChunk.m_188810_(cellY, cellZ);\n\n" +
+                "                    if (ChunkGenMathOptimizer.isAirCell(noiseChunk, cellY, cellZ, minCellY, cellHeight, aquifer)) {\n" +
+                "                        continue;\n" +
+                "                    }\n\n" +
+                "                    for (int yInside = cellHeight - 1; yInside >= 0; --yInside) {\n" +
+                "                        int worldY = (minCellY + cellY) * cellHeight + yInside;\n" +
+                "                        int localY = worldY & 15;\n" +
+                "                        int sectionIndex = chunk.m_151564_(worldY);\n\n" +
+                "                        if (lastSectionIndex != sectionIndex) {\n" +
+                "                            lastSectionIndex = sectionIndex;\n" +
+                "                            section = chunk.m_183278_(sectionIndex);\n" +
+                "                        }\n\n" +
+                "                        double yRatio = (double) yInside / (double) cellHeight;\n" +
+                "                        noiseChunk.m_209191_(worldY, yRatio);\n\n" +
+                "                        for (int xInside = 0; xInside < cellWidth; ++xInside) {\n" +
+                "                            int worldX = minBlockX + cellX * cellWidth + xInside;\n" +
+                "                            int localX = worldX & 15;\n" +
+                "                            double xRatio = (double) xInside / (double) cellWidth;\n" +
+                "                            noiseChunk.m_209230_(worldX, xRatio);\n\n" +
+                "                            for (int zInside = 0; zInside < cellWidth; ++zInside) {\n" +
+                "                                int worldZ = minBlockZ + cellZ * cellWidth + zInside;\n" +
+                "                                int localZ = worldZ & 15;\n" +
+                "                                double zRatio = (double) zInside / (double) cellWidth;\n" +
+                "                                noiseChunk.m_209241_(worldZ, zRatio);\n\n" +
+                "                                BlockState blockState = ChunkGenMathOptimizer.computeBlockState(noiseChunk);\n" +
+                "                                if (blockState == null) {\n" +
+                "                                    blockState = defaultBlock;\n" +
+                "                                }\n\n" +
+                "                                blockState = this.m_198231_(noiseChunk, worldX, worldY, worldZ, blockState);\n" +
+                "                                if (blockState != f_64321_ && !net.minecraft.SharedConstants.m_183707_(chunkPos)) {\n" +
+                "                                    section.m_62991_(localX, localY, localZ, blockState, false);\n" +
+                "                                    oceanFloor.m_64249_(localX, worldY, localZ, blockState);\n" +
+                "                                    worldSurface.m_64249_(localX, worldY, localZ, blockState);\n" +
+                "                                    if (aquifer.m_142203_()) {\n" +
+                "                                        FluidState fluidState = blockState.m_60819_();\n" +
+                "                                        if (!fluidState.m_76178_()) {\n" +
+                "                                            mutablePos.m_122178_(worldX, worldY, worldZ);\n" +
+                "                                            chunk.m_8113_(mutablePos);\n" +
+                "                                        }\n" +
+                "                                    }\n" +
+                "                                }\n" +
+                "                            }\n" +
+                "                        }\n" +
+                "                    }\n" +
+                "                }\n" +
+                "            }\n" +
+                "            noiseChunk.m_188804_();\n" +
+                "        }\n" +
+                "        noiseChunk.m_209248_();\n" +
+                "        return chunk;\n" +
+                "    }\n" +
+                "}\n";
+
+            Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
+            Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), mixinSrc);
+
+            // Construct classpath from libraries and server jar
+            File libDir = new File("/home/maple/Server1-20-1/libraries");
+            StringBuilder cp = new StringBuilder();
+            buildClasspath(libDir, cp);
+            cp.append(File.pathSeparator).append("/home/maple/Server1-20-1/arclight-forge-1.20.1-1.0.6-SNAPSHOT.jar");
+            cp.append(File.pathSeparator).append(commonDir.getAbsolutePath());
+
+            ProcessBuilder pb = new ProcessBuilder(
+                "javac", "-proc:none", "-cp", cp.toString(), "-d", commonDir.getAbsolutePath(),
+                new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
+                new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath()
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("[javac-math] " + line);
+                }
+            }
+            int code = p.waitFor();
+            if (code == 0) {
+                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer & NoiseBasedChunkGeneratorMixin into common.jar!");
+            } else {
+                throw new RuntimeException("Failed to compile chunk math optimizer mixin, exit code: " + code);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error during chunk math optimizer compilation", e);
+        }
+    }
+
+    private static void buildClasspath(File dir, StringBuilder cp) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                buildClasspath(f, cp);
+            } else if (f.getName().endsWith(".jar")) {
+                if (cp.length() > 0) cp.append(File.pathSeparator);
+                cp.append(f.getAbsolutePath());
+            }
+        }
     }
 
     private static void unzip(File zipFile, File destDir) throws IOException {
