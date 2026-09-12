@@ -81,7 +81,23 @@ public class ArclightPatcher {
         Files.write(poiMixinClassFile.toPath(), poiMixinBytes);
         System.out.println("Created PoiSectionMixin.class");
 
-        // 7. Register PoiSectionMixin in mixins.arclight.core.json
+        // 6.1 Generate Network Packet & Payload Fixer mixins
+        File serverPayloadMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/protocol/game/ServerboundCustomPayloadPacketMixin.class");
+        serverPayloadMixin.getParentFile().mkdirs();
+        Files.write(serverPayloadMixin.toPath(), createPayloadPacketMixin("io/izzel/arclight/common/mixin/core/network/protocol/game/ServerboundCustomPayloadPacketMixin", "net/minecraft/network/protocol/game/ServerboundCustomPayloadPacket"));
+
+        File clientPayloadMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/protocol/game/ClientboundCustomPayloadPacketMixin.class");
+        Files.write(clientPayloadMixin.toPath(), createPayloadPacketMixin("io/izzel/arclight/common/mixin/core/network/protocol/game/ClientboundCustomPayloadPacketMixin", "net/minecraft/network/protocol/game/ClientboundCustomPayloadPacket"));
+
+        File compressMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/CompressionDecoderMixin.class");
+        compressMixin.getParentFile().mkdirs();
+        Files.write(compressMixin.toPath(), createCompressionDecoderMixinBytes());
+
+        File byteBufMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/FriendlyByteBufMixin.class");
+        Files.write(byteBufMixin.toPath(), createFriendlyByteBufMixinBytes());
+        System.out.println("Created Network Packet & Payload Fixer mixins (2GB limits)");
+
+        // 7. Register mixins in mixins.arclight.core.json
         File coreMixinJson = new File(commonDir, "mixins.arclight.core.json");
         if (coreMixinJson.exists()) {
             String jsonContent = Files.readString(coreMixinJson.toPath());
@@ -90,9 +106,15 @@ public class ArclightPatcher {
                     "\"world.BlockGetterMixin\",",
                     "\"world.entity.ai.village.poi.PoiSectionMixin\",\n    \"world.BlockGetterMixin\","
                 );
-                Files.writeString(coreMixinJson.toPath(), jsonContent);
-                System.out.println("Registered PoiSectionMixin in mixins.arclight.core.json");
             }
+            if (!jsonContent.contains("network.protocol.game.ServerboundCustomPayloadPacketMixin")) {
+                jsonContent = jsonContent.replace(
+                    "\"network.ConnectionMixin\",",
+                    "\"network.ConnectionMixin\",\n    \"network.CompressionDecoderMixin\",\n    \"network.FriendlyByteBufMixin\",\n    \"network.protocol.game.ServerboundCustomPayloadPacketMixin\",\n    \"network.protocol.game.ClientboundCustomPayloadPacketMixin\","
+                );
+            }
+            Files.writeString(coreMixinJson.toPath(), jsonContent);
+            System.out.println("Registered custom mixins in mixins.arclight.core.json");
         }
 
         // 8. Repack common.jar
@@ -397,6 +419,171 @@ public class ArclightPatcher {
         mv.visitInsn(Opcodes.RETURN);
         mv.visitMaxs(0, 4);
         mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    private static byte[] createPayloadPacketMixin(String mixinClassName, String targetClass) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
+                mixinClassName, null, "java/lang/Object", null);
+
+        // @Mixin(Target.class)
+        AnnotationVisitor av = cw.visitAnnotation("Lorg/spongepowered/asm/mixin/Mixin;", false);
+        AnnotationVisitor avTargets = av.visitArray("value");
+        avTargets.visit(null, Type.getType("L" + targetClass + ";"));
+        avTargets.visitEnd();
+        av.visitEnd();
+
+        // Default constructor
+        MethodVisitor mvConstructor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        mvConstructor.visitCode();
+        mvConstructor.visitVarInsn(Opcodes.ALOAD, 0);
+        mvConstructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        mvConstructor.visitInsn(Opcodes.RETURN);
+        mvConstructor.visitMaxs(1, 1);
+        mvConstructor.visitEnd();
+
+        // @ModifyConstant(method = "<init>", constant = @Constant(intValue = 32767), remap = false, require = 0)
+        // private int arclight$increaseMaxPayload(int constant) { return Integer.MAX_VALUE; }
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE, "arclight$increaseMaxPayload", "(I)I", null, null);
+
+        AnnotationVisitor mcAv = mv.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/ModifyConstant;", false);
+        AnnotationVisitor methodArray = mcAv.visitArray("method");
+        methodArray.visit(null, "<init>");
+        methodArray.visitEnd();
+
+        AnnotationVisitor constantAv = mcAv.visitAnnotation("constant", "Lorg/spongepowered/asm/mixin/injection/Constant;");
+        constantAv.visit("intValue", 32767);
+        constantAv.visitEnd();
+
+        mcAv.visit("remap", false);
+        mcAv.visit("require", 0);
+        mcAv.visitEnd();
+
+        mv.visitCode();
+        mv.visitLdcInsn(Integer.MAX_VALUE);
+        mv.visitInsn(Opcodes.IRETURN);
+        mv.visitMaxs(1, 2);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    private static byte[] createCompressionDecoderMixinBytes() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
+                "io/izzel/arclight/common/mixin/core/network/CompressionDecoderMixin", null, "java/lang/Object", null);
+
+        // @Mixin(CompressionDecoder.class)
+        AnnotationVisitor av = cw.visitAnnotation("Lorg/spongepowered/asm/mixin/Mixin;", false);
+        AnnotationVisitor avTargets = av.visitArray("value");
+        avTargets.visit(null, Type.getType("Lnet/minecraft/network/CompressionDecoder;"));
+        avTargets.visitEnd();
+        av.visitEnd();
+
+        // Default constructor
+        MethodVisitor mvConstructor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        mvConstructor.visitCode();
+        mvConstructor.visitVarInsn(Opcodes.ALOAD, 0);
+        mvConstructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        mvConstructor.visitInsn(Opcodes.RETURN);
+        mvConstructor.visitMaxs(1, 1);
+        mvConstructor.visitEnd();
+
+        // @ModifyConstant(method = {"decode", "m_6926_"}, constant = @Constant(intValue = 2097152), remap = false, require = 0)
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE, "arclight$increaseMaxDecompress", "(I)I", null, null);
+
+        AnnotationVisitor mcAv = mv.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/ModifyConstant;", false);
+        AnnotationVisitor methodArray = mcAv.visitArray("method");
+        methodArray.visit(null, "decode");
+        methodArray.visit(null, "m_6926_");
+        methodArray.visitEnd();
+
+        AnnotationVisitor constantAv = mcAv.visitAnnotation("constant", "Lorg/spongepowered/asm/mixin/injection/Constant;");
+        constantAv.visit("intValue", 2097152);
+        constantAv.visitEnd();
+
+        mcAv.visit("remap", false);
+        mcAv.visit("require", 0);
+        mcAv.visitEnd();
+
+        mv.visitCode();
+        mv.visitLdcInsn(Integer.MAX_VALUE);
+        mv.visitInsn(Opcodes.IRETURN);
+        mv.visitMaxs(1, 2);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    private static byte[] createFriendlyByteBufMixinBytes() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
+                "io/izzel/arclight/common/mixin/core/network/FriendlyByteBufMixin", null, "java/lang/Object", null);
+
+        // @Mixin(FriendlyByteBuf.class)
+        AnnotationVisitor av = cw.visitAnnotation("Lorg/spongepowered/asm/mixin/Mixin;", false);
+        AnnotationVisitor avTargets = av.visitArray("value");
+        avTargets.visit(null, Type.getType("Lnet/minecraft/network/FriendlyByteBuf;"));
+        avTargets.visitEnd();
+        av.visitEnd();
+
+        // Default constructor
+        MethodVisitor mvConstructor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        mvConstructor.visitCode();
+        mvConstructor.visitVarInsn(Opcodes.ALOAD, 0);
+        mvConstructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        mvConstructor.visitInsn(Opcodes.RETURN);
+        mvConstructor.visitMaxs(1, 1);
+        mvConstructor.visitEnd();
+
+        // 1. @ModifyConstant(method = {"readUtf", "m_130277_"}, constant = @Constant(intValue = 32767), remap = false, require = 0)
+        MethodVisitor mvUtf = cw.visitMethod(Opcodes.ACC_PRIVATE, "arclight$increaseMaxUtf", "(I)I", null, null);
+        AnnotationVisitor mcAvUtf = mvUtf.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/ModifyConstant;", false);
+        AnnotationVisitor methodArrayUtf = mcAvUtf.visitArray("method");
+        methodArrayUtf.visit(null, "readUtf");
+        methodArrayUtf.visit(null, "m_130277_");
+        methodArrayUtf.visitEnd();
+
+        AnnotationVisitor constantAvUtf = mcAvUtf.visitAnnotation("constant", "Lorg/spongepowered/asm/mixin/injection/Constant;");
+        constantAvUtf.visit("intValue", 32767);
+        constantAvUtf.visitEnd();
+
+        mcAvUtf.visit("remap", false);
+        mcAvUtf.visit("require", 0);
+        mcAvUtf.visitEnd();
+
+        mvUtf.visitCode();
+        mvUtf.visitLdcInsn(536870911); // Integer.MAX_VALUE / 4
+        mvUtf.visitInsn(Opcodes.IRETURN);
+        mvUtf.visitMaxs(1, 2);
+        mvUtf.visitEnd();
+
+        // 2. @ModifyConstant(method = {"readNbt", "m_130260_"}, constant = @Constant(longValue = 2097152L), remap = false, require = 0)
+        MethodVisitor mvNbt = cw.visitMethod(Opcodes.ACC_PRIVATE, "arclight$increaseMaxNbt", "(J)J", null, null);
+        AnnotationVisitor mcAvNbt = mvNbt.visitAnnotation("Lorg/spongepowered/asm/mixin/injection/ModifyConstant;", false);
+        AnnotationVisitor methodArrayNbt = mcAvNbt.visitArray("method");
+        methodArrayNbt.visit(null, "readNbt");
+        methodArrayNbt.visit(null, "m_130260_");
+        methodArrayNbt.visitEnd();
+
+        AnnotationVisitor constantAvNbt = mcAvNbt.visitAnnotation("constant", "Lorg/spongepowered/asm/mixin/injection/Constant;");
+        constantAvNbt.visit("longValue", 2097152L);
+        constantAvNbt.visitEnd();
+
+        mcAvNbt.visit("remap", false);
+        mcAvNbt.visit("require", 0);
+        mcAvNbt.visitEnd();
+
+        mvNbt.visitCode();
+        mvNbt.visitLdcInsn(2147483647L);
+        mvNbt.visitInsn(Opcodes.LRETURN);
+        mvNbt.visitMaxs(2, 3);
+        mvNbt.visitEnd();
 
         cw.visitEnd();
         return cw.toByteArray();
