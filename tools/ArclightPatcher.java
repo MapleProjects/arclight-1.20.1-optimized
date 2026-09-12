@@ -50,7 +50,7 @@ public class ArclightPatcher {
         // 5. Patch ServerChunkCache_MainThreadExecutorMixin.class in common.jar
         File mainThreadExecMixinFile = new File(commonDir, "io/izzel/arclight/common/mixin/core/server/level/ServerChunkCache_MainThreadExecutorMixin.class");
         if (mainThreadExecMixinFile.exists()) {
-            System.out.println("Patching ServerChunkCache_MainThreadExecutorMixin.class with 128-batch drain...");
+            System.out.println("Patching ServerChunkCache_MainThreadExecutorMixin.class with 512-batch drain...");
             byte[] bytes = Files.readAllBytes(mainThreadExecMixinFile.toPath());
             byte[] patched = patchMainThreadExecutorMixin(bytes);
             Files.write(mainThreadExecMixinFile.toPath(), patched);
@@ -59,7 +59,7 @@ public class ArclightPatcher {
         // 5.1 Patch ArclightCallbackExecutor.class in common.jar
         File callbackExecFile = new File(commonDir, "io/izzel/arclight/common/mod/util/ArclightCallbackExecutor.class");
         if (callbackExecFile.exists()) {
-            System.out.println("Patching ArclightCallbackExecutor.class to 512 tasks and 20ms limit...");
+            System.out.println("Patching ArclightCallbackExecutor.class to 1024 tasks and 50ms limit...");
             byte[] bytes = Files.readAllBytes(callbackExecFile.toPath());
             byte[] patched = patchArclightCallbackExecutor(bytes);
             Files.write(callbackExecFile.toPath(), patched);
@@ -95,7 +95,8 @@ public class ArclightPatcher {
 
         File byteBufMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/FriendlyByteBufMixin.class");
         Files.write(byteBufMixin.toPath(), createFriendlyByteBufMixinBytes());
-        // 6.2 Compile and add Mathematical Chunk Engine Optimization (Bedrock-grade Culling & Interval Bounding)
+
+        // 6.2 Compile and add Mathematical Chunk Engine & Feature Placement Optimization
         compileAndInjectChunkMathOptimizer(commonDir);
 
         // 7. Register mixins in mixins.arclight.core.json
@@ -117,7 +118,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.level.chunk.ChunkGeneratorMixin\",",
-                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\","
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -156,19 +157,21 @@ public class ArclightPatcher {
             if (mn.name.equals("accept") && mn.desc.equals("([Ljava/lang/String;)V")) {
                 InsnList insns = new InsnList();
 
-                // System.setProperty("max.bg.threads", String.valueOf(Math.max(Runtime.getRuntime().availableProcessors(), 16)));
+                // System.setProperty("max.bg.threads", String.valueOf(Math.max(Runtime.getRuntime().availableProcessors() * 2, 32)));
                 insns.add(new LdcInsnNode("max.bg.threads"));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Runtime", "availableProcessors", "()I", false));
-                insns.add(new IntInsnNode(Opcodes.BIPUSH, 16));
+                insns.add(new InsnNode(Opcodes.ICONST_2));
+                insns.add(new InsnNode(Opcodes.IMUL));
+                insns.add(new IntInsnNode(Opcodes.BIPUSH, 32));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(II)I", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/String", "valueOf", "(I)Ljava/lang/String;", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
                 insns.add(new InsnNode(Opcodes.POP));
 
-                // System.setProperty("paper.max-chunk-sends-per-tick", "1024");
+                // System.setProperty("paper.max-chunk-sends-per-tick", "4096");
                 insns.add(new LdcInsnNode("paper.max-chunk-sends-per-tick"));
-                insns.add(new LdcInsnNode("1024"));
+                insns.add(new LdcInsnNode("4096"));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
                 insns.add(new InsnNode(Opcodes.POP));
 
@@ -222,19 +225,21 @@ public class ArclightPatcher {
             if (mn.name.startsWith("arclight$replaceWhitelist")) {
                 InsnList insns = new InsnList();
 
-                // System.setProperty("max.bg.threads", String.valueOf(Math.max(Runtime.getRuntime().availableProcessors(), 16)));
+                // System.setProperty("max.bg.threads", String.valueOf(Math.max(Runtime.getRuntime().availableProcessors() * 2, 32)));
                 insns.add(new LdcInsnNode("max.bg.threads"));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Runtime", "availableProcessors", "()I", false));
-                insns.add(new IntInsnNode(Opcodes.BIPUSH, 16));
+                insns.add(new InsnNode(Opcodes.ICONST_2));
+                insns.add(new InsnNode(Opcodes.IMUL));
+                insns.add(new IntInsnNode(Opcodes.BIPUSH, 32));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(II)I", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/String", "valueOf", "(I)Ljava/lang/String;", false));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
                 insns.add(new InsnNode(Opcodes.POP));
 
-                // System.setProperty("paper.max-chunk-sends-per-tick", "512");
+                // System.setProperty("paper.max-chunk-sends-per-tick", "4096");
                 insns.add(new LdcInsnNode("paper.max-chunk-sends-per-tick"));
-                insns.add(new LdcInsnNode("512"));
+                insns.add(new LdcInsnNode("4096"));
                 insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
                 insns.add(new InsnNode(Opcodes.POP));
 
@@ -262,16 +267,16 @@ public class ArclightPatcher {
                         if (minsn.owner.equals("net/minecraft/util/thread/BlockableEventLoop") && minsn.name.equals("m_7245_")) {
                             AbstractInsnNode nextNode = insn.getNext();
                             if (nextNode instanceof VarInsnNode && nextNode.getOpcode() == Opcodes.ISTORE) {
-                                // Add 127 consecutive drains without branching
+                                // Add 511 consecutive drains without branching
                                 InsnList drainList = new InsnList();
-                                for (int i = 0; i < 127; i++) {
+                                for (int i = 0; i < 511; i++) {
                                     drainList.add(new VarInsnNode(Opcodes.ALOAD, 0));
                                     drainList.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "net/minecraft/util/thread/BlockableEventLoop", "m_7245_", "()Z", false));
                                     drainList.add(new InsnNode(Opcodes.POP));
                                 }
 
                                 mn.instructions.insert(nextNode, drainList);
-                                System.out.println("Injected 128-task batch chunk event loop drain into ServerChunkCache_MainThreadExecutorMixin.m_7245_");
+                                System.out.println("Injected 512-task batch chunk event loop drain into ServerChunkCache_MainThreadExecutorMixin.m_7245_");
                                 break;
                             }
                         }
@@ -294,17 +299,17 @@ public class ArclightPatcher {
         for (MethodNode mn : cn.methods) {
             if (mn.name.equals("run") && mn.desc.equals("()V")) {
                 for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                    if (insn.getOpcode() == Opcodes.BIPUSH) {
+                    if (insn.getOpcode() == Opcodes.BIPUSH || insn.getOpcode() == Opcodes.SIPUSH) {
                         IntInsnNode iin = (IntInsnNode) insn;
-                        if (iin.operand == 64) {
-                            mn.instructions.set(insn, new IntInsnNode(Opcodes.SIPUSH, 512));
-                            System.out.println("Updated ArclightCallbackExecutor max tasks from 64 to 512");
+                        if (iin.operand == 64 || iin.operand == 512) {
+                            mn.instructions.set(insn, new IntInsnNode(Opcodes.SIPUSH, 1024));
+                            System.out.println("Updated ArclightCallbackExecutor max tasks to 1024");
                         }
                     } else if (insn.getOpcode() == Opcodes.LDC) {
                         LdcInsnNode ldc = (LdcInsnNode) insn;
-                        if (ldc.cst instanceof Long && (Long) ldc.cst == 5000000L) {
-                            ldc.cst = 20000000L;
-                            System.out.println("Updated ArclightCallbackExecutor time limit from 5ms to 20ms");
+                        if (ldc.cst instanceof Long && ((Long) ldc.cst == 5000000L || (Long) ldc.cst == 20000000L)) {
+                            ldc.cst = 50000000L;
+                            System.out.println("Updated ArclightCallbackExecutor time limit to 50ms");
                         }
                     }
                 }
@@ -1041,9 +1046,78 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            File placePkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen/placement");
+            placePkg.mkdirs();
+
+            String placedFeatureMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen.placement;\n\n" +
+                "import net.minecraft.core.BlockPos;\n" +
+                "import net.minecraft.core.Holder;\n" +
+                "import net.minecraft.util.RandomSource;\n" +
+                "import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;\n" +
+                "import net.minecraft.world.level.levelgen.placement.PlacedFeature;\n" +
+                "import net.minecraft.world.level.levelgen.placement.PlacementContext;\n" +
+                "import net.minecraft.world.level.levelgen.placement.PlacementModifier;\n" +
+                "import org.spongepowered.asm.mixin.Final;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Overwrite;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n" +
+                "import java.util.ArrayList;\n" +
+                "import java.util.List;\n" +
+                "import java.util.stream.Stream;\n\n" +
+                "@Mixin(value = PlacedFeature.class, priority = 500)\n" +
+                "public abstract class PlacedFeatureMixin {\n\n" +
+                "    @Shadow @Final private Holder<ConfiguredFeature<?, ?>> f_191775_;\n" +
+                "    @Shadow @Final private List<PlacementModifier> f_191776_;\n\n" +
+                "    /**\n" +
+                "     * @author Maple Optimization\n" +
+                "     * @reason High-performance zero-stream iterative feature placement\n" +
+                "     */\n" +
+                "    @Overwrite(remap = false)\n" +
+                "    private boolean m_226368_(PlacementContext context, RandomSource random, BlockPos origin) {\n" +
+                "        List<PlacementModifier> modifiers = this.f_191776_;\n" +
+                "        if (modifiers.isEmpty()) {\n" +
+                "            ConfiguredFeature<?, ?> feature = this.f_191775_.m_203334_();\n" +
+                "            return feature.m_224953_(context.m_191831_(), context.m_191833_(), random, origin);\n" +
+                "        }\n\n" +
+                "        List<BlockPos> inList = new ArrayList<>(8);\n" +
+                "        List<BlockPos> outList = new ArrayList<>(8);\n" +
+                "        inList.add(origin);\n\n" +
+                "        int modCount = modifiers.size();\n" +
+                "        for (int i = 0; i < modCount; ++i) {\n" +
+                "            PlacementModifier modifier = modifiers.get(i);\n" +
+                "            outList.clear();\n" +
+                "            int inCount = inList.size();\n" +
+                "            for (int j = 0; j < inCount; ++j) {\n" +
+                "                BlockPos pos = inList.get(j);\n" +
+                "                Stream<BlockPos> stream = modifier.m_213676_(context, random, pos);\n" +
+                "                stream.forEach(outList::add);\n" +
+                "            }\n" +
+                "            if (outList.isEmpty()) {\n" +
+                "                return false;\n" +
+                "            }\n" +
+                "            List<BlockPos> temp = inList;\n" +
+                "            inList = outList;\n" +
+                "            outList = temp;\n" +
+                "        }\n\n" +
+                "        if (inList.isEmpty()) {\n" +
+                "            return false;\n" +
+                "        }\n" +
+                "        ConfiguredFeature<?, ?> feature = this.f_191775_.m_203334_();\n" +
+                "        boolean placed = false;\n" +
+                "        int finalCount = inList.size();\n" +
+                "        for (int i = 0; i < finalCount; ++i) {\n" +
+                "            if (feature.m_224953_(context.m_191831_(), context.m_191833_(), random, inList.get(i))) {\n" +
+                "                placed = true;\n" +
+                "            }\n" +
+                "        }\n" +
+                "        return placed;\n" +
+                "    }\n" +
+                "}\n";
+
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
             Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceMixinSrc);
+            Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
 
             // Construct classpath from libraries and server jar
             File libDir = new File("/home/maple/Server1-20-1/libraries");
@@ -1056,7 +1130,8 @@ public class ArclightPatcher {
                 "javac", "-proc:none", "-cp", cp.toString(), "-d", commonDir.getAbsolutePath(),
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
-                new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath()
+                new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
+                new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath()
             );
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -1068,7 +1143,7 @@ public class ArclightPatcher {
             }
             int code = p.waitFor();
             if (code == 0) {
-                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, and SurfaceSystemMixin into common.jar!");
+                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, SurfaceSystemMixin, and PlacedFeatureMixin into common.jar!");
             } else {
                 throw new RuntimeException("Failed to compile chunk math optimizer mixins, exit code: " + code);
             }
