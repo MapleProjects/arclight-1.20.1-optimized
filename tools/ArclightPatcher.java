@@ -47,14 +47,7 @@ public class ArclightPatcher {
             Files.write(bootstrapMixinFile.toPath(), patched);
         }
 
-        // 5. Patch ServerChunkCache_MainThreadExecutorMixin.class in common.jar
-        File mainThreadExecMixinFile = new File(commonDir, "io/izzel/arclight/common/mixin/core/server/level/ServerChunkCache_MainThreadExecutorMixin.class");
-        if (mainThreadExecMixinFile.exists()) {
-            System.out.println("Patching ServerChunkCache_MainThreadExecutorMixin.class with 512-batch drain...");
-            byte[] bytes = Files.readAllBytes(mainThreadExecMixinFile.toPath());
-            byte[] patched = patchMainThreadExecutorMixin(bytes);
-            Files.write(mainThreadExecMixinFile.toPath(), patched);
-        }
+        // 5. ArclightCallbackExecutor optimization
 
         // 5.1 Patch ArclightCallbackExecutor.class in common.jar
         File callbackExecFile = new File(commonDir, "io/izzel/arclight/common/mod/util/ArclightCallbackExecutor.class");
@@ -254,42 +247,7 @@ public class ArclightPatcher {
         return cw.toByteArray();
     }
 
-    private static byte[] patchMainThreadExecutorMixin(byte[] classBytes) {
-        ClassReader cr = new ClassReader(classBytes);
-        ClassNode cn = new ClassNode();
-        cr.accept(cn, 0);
 
-        for (MethodNode mn : cn.methods) {
-            if (mn.name.equals("m_7245_") && mn.desc.equals("()Z")) {
-                for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                    if (insn instanceof MethodInsnNode) {
-                        MethodInsnNode minsn = (MethodInsnNode) insn;
-                        if (minsn.owner.equals("net/minecraft/util/thread/BlockableEventLoop") && minsn.name.equals("m_7245_")) {
-                            AbstractInsnNode nextNode = insn.getNext();
-                            if (nextNode instanceof VarInsnNode && nextNode.getOpcode() == Opcodes.ISTORE) {
-                                // Add 511 consecutive drains without branching
-                                InsnList drainList = new InsnList();
-                                for (int i = 0; i < 511; i++) {
-                                    drainList.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                                    drainList.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "net/minecraft/util/thread/BlockableEventLoop", "m_7245_", "()Z", false));
-                                    drainList.add(new InsnNode(Opcodes.POP));
-                                }
-
-                                mn.instructions.insert(nextNode, drainList);
-                                System.out.println("Injected 512-task batch chunk event loop drain into ServerChunkCache_MainThreadExecutorMixin.m_7245_");
-                                break;
-                            }
-                        }
-                    }
-                }
-                break;
-            }
-        }
-
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        cn.accept(cw);
-        return cw.toByteArray();
-    }
 
     private static byte[] patchArclightCallbackExecutor(byte[] classBytes) {
         ClassReader cr = new ClassReader(classBytes);
