@@ -76,12 +76,7 @@ public class ArclightPatcher {
             Files.write(netHandlerMixinFile.toPath(), patched);
         }
 
-        // 6. Generate and add PoiSectionMixin to common.jar
-        File poiMixinClassFile = new File(commonDir, "io/izzel/arclight/common/mixin/core/world/entity/ai/village/poi/PoiSectionMixin.class");
-        poiMixinClassFile.getParentFile().mkdirs();
-        byte[] poiMixinBytes = createPoiSectionMixinBytes();
-        Files.write(poiMixinClassFile.toPath(), poiMixinBytes);
-        System.out.println("Created PoiSectionMixin.class");
+
 
         // 6.1 Generate Network Packet & Payload Fixer mixins
         File serverPayloadMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/protocol/game/ServerboundCustomPayloadPacketMixin.class");
@@ -632,23 +627,9 @@ public class ArclightPatcher {
                             }
                         }
                     }
-                    // 2. Bypass "internalTeleport" rollback block in m_7185_
-                    if (mn.name.equals("m_7185_") && insn.getOpcode() == Opcodes.INVOKEVIRTUAL) {
-                        MethodInsnNode minsn = (MethodInsnNode) insn;
-                        if (minsn.name.equals("m_288208_")) {
-                            AbstractInsnNode next = minsn.getNext();
-                            if (next instanceof JumpInsnNode) {
-                                JumpInsnNode jump = (JumpInsnNode) next;
-                                LabelNode targetLabel = jump.label;
-                                mn.instructions.set(jump, new JumpInsnNode(Opcodes.GOTO, targetLabel));
-                                mn.instructions.insertBefore(minsn.getNext(), new InsnNode(Opcodes.POP));
-                                System.out.println("Forced GOTO target after m_288208_ in m_7185_ to eliminate rubberband!");
-                            }
-                        }
-                    }
                 }
 
-                // 3. Inject WorldMeshFlightSafeguard.safeguardPlayerY in m_7185_
+                // 2. Inject WorldMeshFlightSafeguard.safeguardPlayerY in m_7185_
                 if (mn.name.equals("m_7185_")) {
                     for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                         if (insn.getOpcode() == Opcodes.DSTORE && ((VarInsnNode) insn).var == 15) {
@@ -1230,6 +1211,46 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            File poiPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/entity/ai/village/poi");
+            poiPkg.mkdirs();
+
+            String poiMixinSrc = "package io.izzel.arclight.common.mixin.core.world.entity.ai.village.poi;\n\n" +
+                "import it.unimi.dsi.fastutil.shorts.Short2ObjectMap;\n" +
+                "import net.minecraft.core.BlockPos;\n" +
+                "import net.minecraft.core.Holder;\n" +
+                "import net.minecraft.core.SectionPos;\n" +
+                "import net.minecraft.world.entity.ai.village.poi.PoiRecord;\n" +
+                "import net.minecraft.world.entity.ai.village.poi.PoiSection;\n" +
+                "import net.minecraft.world.entity.ai.village.poi.PoiType;\n" +
+                "import org.spongepowered.asm.mixin.Final;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Overwrite;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n" +
+                "import java.util.Map;\n" +
+                "import java.util.Set;\n\n" +
+                "@Mixin(value = PoiSection.class, priority = 500)\n" +
+                "public abstract class PoiSectionMixin {\n\n" +
+                "    @Shadow @Final private Short2ObjectMap<PoiRecord> f_27261_;\n" +
+                "    @Shadow @Final private Map<Holder<PoiType>, Set<PoiRecord>> f_27262_;\n" +
+                "    @Shadow private Runnable f_27263_;\n\n" +
+                "    /**\n" +
+                "     * @author Maple Optimization\n" +
+                "     * @reason Eliminate POI data mismatch logging freeze\n" +
+                "     */\n" +
+                "    @Overwrite\n" +
+                "    public void m_27279_(BlockPos pos) {\n" +
+                "        PoiRecord record = this.f_27261_.remove(SectionPos.m_123218_(pos));\n" +
+                "        if (record == null) {\n" +
+                "            return;\n" +
+                "        }\n" +
+                "        Set<PoiRecord> set = this.f_27262_.get(record.m_218018_());\n" +
+                "        if (set != null) {\n" +
+                "            set.remove(record);\n" +
+                "        }\n" +
+                "        this.f_27263_.run();\n" +
+                "    }\n" +
+                "}\n";
+
             String flightSafeguardSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
                 "import net.minecraft.core.SectionPos;\n" +
                 "import net.minecraft.server.level.ServerLevel;\n" +
@@ -1241,14 +1262,21 @@ public class ArclightPatcher {
                 "public class WorldMeshFlightSafeguard {\n\n" +
                 "    public static double safeguardPlayerY(ServerPlayer player, double targetX, double targetY, double targetZ, double prevX, double prevY, double prevZ) {\n" +
                 "        if (player == null) return targetY;\n\n" +
+                "        // Boundary sanity check (prevent teleport / uninitialized coordinate freezing)\n" +
+                "        if (prevY > 400.0 || prevY < -100.0 || targetY > 400.0 || targetY < -100.0) {\n" +
+                "            return targetY;\n" +
+                "        }\n\n" +
+                "        boolean isFlying = player.m_21255_() || player.m_150110_().f_35935_ || player.m_150110_().f_35934_;\n" +
+                "        if (!isFlying) {\n" +
+                "            return targetY;\n" +
+                "        }\n\n" +
                 "        ServerLevel level = player.m_284548_();\n" +
                 "        if (level == null) return targetY;\n\n" +
                 "        int blockX = (int) Math.floor(targetX);\n" +
                 "        int blockZ = (int) Math.floor(targetZ);\n" +
                 "        int chunkX = SectionPos.m_123171_(blockX);\n" +
                 "        int chunkZ = SectionPos.m_123171_(blockZ);\n\n" +
-                "        boolean isFlying = player.m_21255_() || player.m_150110_().f_35935_ || player.m_150110_().f_35934_;\n\n" +
-                "        // Pure non-blocking memory lookup (0ns lock, no futures, no managedBlock)\n" +
+                "        // Pure non-blocking memory lookup\n" +
                 "        ChunkAccess chunk = level.m_7726_().m_7587_(chunkX, chunkZ, ChunkStatus.f_62326_, false);\n" +
                 "        if (chunk instanceof LevelChunk) {\n" +
                 "            int localX = blockX & 15;\n" +
@@ -1257,19 +1285,11 @@ public class ArclightPatcher {
                 "            int oceanFloorY = chunk.m_5885_(Heightmap.Types.OCEAN_FLOOR, localX, localZ);\n" +
                 "            int groundY = Math.max(surfaceY, oceanFloorY);\n" +
                 "            int minBuildY = level.m_141937_();\n\n" +
-                "            if (groundY > minBuildY) {\n" +
+                "            if (groundY > minBuildY && groundY < 320) {\n" +
                 "                double targetGroundY = groundY + 1.05;\n" +
-                "                if (targetY < targetGroundY) {\n" +
-                "                    if (prevY >= groundY - 2.0 || isFlying || prevY > targetY) {\n" +
-                "                        return targetGroundY;\n" +
-                "                    }\n" +
+                "                if (targetY < targetGroundY && (prevY >= groundY - 2.0 || prevY > targetY)) {\n" +
+                "                    return targetGroundY;\n" +
                 "                }\n" +
-                "            }\n" +
-                "        } else if (isFlying) {\n" +
-                "            int seaLevel = level.m_5736_();\n" +
-                "            double minSafeY = Math.max((double) seaLevel + 1.05, prevY - 0.5);\n" +
-                "            if (targetY < minSafeY && prevY >= minSafeY - 1.0) {\n" +
-                "                return minSafeY;\n" +
                 "            }\n" +
                 "        }\n\n" +
                 "        return targetY;\n" +
@@ -1286,6 +1306,7 @@ public class ArclightPatcher {
             Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceGenMixinSrc);
             Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
             Files.writeString(new File(tagsPkg, "TagKeyMixin.java").toPath(), tagKeyMixinSrc);
+            Files.writeString(new File(poiPkg, "PoiSectionMixin.java").toPath(), poiMixinSrc);
 
             // Construct classpath from libraries and server jar
             File libDir = new File("/home/maple/Server1-20-1/libraries");
@@ -1305,7 +1326,8 @@ public class ArclightPatcher {
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
                 new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath(),
-                new File(tagsPkg, "TagKeyMixin.java").getAbsolutePath()
+                new File(tagsPkg, "TagKeyMixin.java").getAbsolutePath(),
+                new File(poiPkg, "PoiSectionMixin.java").getAbsolutePath()
             );
             pb.redirectErrorStream(true);
             Process p = pb.start();
