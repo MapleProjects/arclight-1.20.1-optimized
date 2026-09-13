@@ -786,18 +786,18 @@ public class ArclightPatcher {
                 "                }\n" +
                 "            }\n\n" +
                 "            // 2. Pure Solid Deepslate (deep underground)\n" +
-                "            if (worldYBase + cellHeight <= -8 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "            if (worldYBase + cellHeight <= 0 && (aquifer == null || !aquifer.m_142203_())) {\n" +
                 "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
                 "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
-                "                if (Math.min(min0, min1) >= 0.05) {\n" +
+                "                if (Math.min(min0, min1) >= 0.01) {\n" +
                 "                    return 2;\n" +
                 "                }\n" +
                 "            }\n\n" +
                 "            // 3. Pure Solid Stone (subsurface layer)\n" +
-                "            if (worldYBase >= 0 && worldYBase + cellHeight <= 50 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "            if (worldYBase >= 0 && (aquifer == null || !aquifer.m_142203_())) {\n" +
                 "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
                 "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
-                "                if (Math.min(min0, min1) >= 0.05) {\n" +
+                "                if (Math.min(min0, min1) >= 0.01) {\n" +
                 "                    return 3;\n" +
                 "                }\n" +
                 "            }\n" +
@@ -835,7 +835,7 @@ public class ArclightPatcher {
                 "    @Shadow private native BlockState m_198231_(NoiseChunk noiseChunk, int x, int y, int z, BlockState blockState);\n\n" +
                 "    /**\n" +
                 "     * @author Maple Mathematical Engine Restructuring\n" +
-                "     * @reason Bedrock-grade analytical horizon culling & interval bounding for nanosecond chunk generation\n" +
+                "     * @reason World Mesh analytical horizon projection for instant high-speed chunk materialization\n" +
                 "     */\n" +
                 "    @Overwrite(remap = false)\n" +
                 "    private ChunkAccess m_224284_(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunk, int minCellY, int cellCountY) {\n" +
@@ -879,6 +879,8 @@ public class ArclightPatcher {
                 "                                for (int zInside = 0; zInside < cellWidth; ++zInside) {\n" +
                 "                                    int localZ = (minBlockZ + cellZ * cellWidth + zInside) & 15;\n" +
                 "                                    section.m_62991_(localX, localY, localZ, solidState, false);\n" +
+                "                                    oceanFloor.m_64249_(localX, worldY, localZ, solidState);\n" +
+                "                                    worldSurface.m_64249_(localX, worldY, localZ, solidState);\n" +
                 "                                }\n" +
                 "                            }\n" +
                 "                        }\n" +
