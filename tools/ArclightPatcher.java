@@ -67,6 +67,15 @@ public class ArclightPatcher {
             Files.write(paletteMixinFile.toPath(), patched);
         }
 
+        // 5.3 Patch ServerPlayNetHandlerMixin.class in common.jar
+        File netHandlerMixinFile = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/ServerPlayNetHandlerMixin.class");
+        if (netHandlerMixinFile.exists()) {
+            System.out.println("Patching ServerPlayNetHandlerMixin.class to remove elytra freeze and rubberbanding...");
+            byte[] bytes = Files.readAllBytes(netHandlerMixinFile.toPath());
+            byte[] patched = patchServerPlayNetHandlerMixin(bytes);
+            Files.write(netHandlerMixinFile.toPath(), patched);
+        }
+
         // 6. Generate and add PoiSectionMixin to common.jar
         File poiMixinClassFile = new File(commonDir, "io/izzel/arclight/common/mixin/core/world/entity/ai/village/poi/PoiSectionMixin.class");
         poiMixinClassFile.getParentFile().mkdirs();
@@ -89,7 +98,7 @@ public class ArclightPatcher {
         File byteBufMixin = new File(commonDir, "io/izzel/arclight/common/mixin/core/network/FriendlyByteBufMixin.class");
         Files.write(byteBufMixin.toPath(), createFriendlyByteBufMixinBytes());
 
-        // 6.2 Compile and add Mathematical Chunk Engine & Feature Placement Optimization
+        // 6.2 Compile and add Mathematical Chunk Engine & Feature Placement Optimization & TagKey de-virtualization
         compileAndInjectChunkMathOptimizer(commonDir);
 
         // 7. Register mixins in mixins.arclight.core.json
@@ -99,7 +108,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.entity.ai.village.poi.PoiSectionMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.BlockGetterMixin\",",
-                    "\"world.entity.ai.village.poi.PoiSectionMixin\",\n    \"world.BlockGetterMixin\","
+                    "\"tags.TagKeyMixin\",\n    \"world.entity.ai.village.poi.PoiSectionMixin\",\n    \"world.BlockGetterMixin\","
                 );
             }
             if (!jsonContent.contains("network.protocol.game.ServerboundCustomPayloadPacketMixin")) {
@@ -559,6 +568,59 @@ public class ArclightPatcher {
         return cw.toByteArray();
     }
 
+    private static byte[] patchServerPlayNetHandlerMixin(byte[] classBytes) {
+        ClassReader cr = new ClassReader(classBytes);
+        ClassNode cn = new ClassNode();
+        cr.accept(cn, 0);
+
+        for (MethodNode mn : cn.methods) {
+            if (mn.name.equals("m_7185_") || mn.name.equals("m_5928_")) {
+                for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    // 1. Neutralize "moved too quickly" return
+                    if (insn.getOpcode() == Opcodes.LDC) {
+                        LdcInsnNode ldc = (LdcInsnNode) insn;
+                        if (ldc.cst instanceof String && ((String) ldc.cst).contains("moved too quickly")) {
+                            for (AbstractInsnNode next = insn; next != null; next = next.getNext()) {
+                                if (next.getOpcode() == Opcodes.RETURN) {
+                                    mn.instructions.set(next, new InsnNode(Opcodes.NOP));
+                                    System.out.println("Replaced RETURN with NOP after moved too quickly in " + mn.name);
+                                    break;
+                                }
+                            }
+                        }
+                        if (ldc.cst instanceof String && ((String) ldc.cst).contains("moved wrongly")) {
+                            for (AbstractInsnNode prev = insn; prev != null; prev = prev.getPrevious()) {
+                                if (prev.getOpcode() == Opcodes.ICONST_1) {
+                                    mn.instructions.set(prev, new InsnNode(Opcodes.ICONST_0));
+                                    System.out.println("Set flag1 = false on moved wrongly in " + mn.name);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // 2. Bypass "internalTeleport" rollback block in m_7185_
+                    if (mn.name.equals("m_7185_") && insn.getOpcode() == Opcodes.INVOKEVIRTUAL) {
+                        MethodInsnNode minsn = (MethodInsnNode) insn;
+                        if (minsn.name.equals("m_288208_")) {
+                            AbstractInsnNode next = minsn.getNext();
+                            if (next instanceof JumpInsnNode) {
+                                JumpInsnNode jump = (JumpInsnNode) next;
+                                LabelNode targetLabel = jump.label;
+                                mn.instructions.set(jump, new JumpInsnNode(Opcodes.GOTO, targetLabel));
+                                mn.instructions.insertBefore(minsn.getNext(), new InsnNode(Opcodes.POP));
+                                System.out.println("Forced GOTO target after m_288208_ in m_7185_ to eliminate rubberband!");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        return cw.toByteArray();
+    }
+
     private static void compileAndInjectChunkMathOptimizer(File commonDir) {
         try {
             File srcDir = new File("/tmp/arclight_math_src");
@@ -573,6 +635,8 @@ public class ArclightPatcher {
             mixinPkg.mkdirs();
             File placePkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen/placement");
             placePkg.mkdirs();
+            File tagsPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/tags");
+            tagsPkg.mkdirs();
 
             String noiseBridgeSrc = "package io.izzel.arclight.common.bridge.core.world.level.levelgen;\n\n" +
                 "import net.minecraft.world.level.block.state.BlockState;\n\n" +
@@ -1073,6 +1137,43 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            String tagKeyMixinSrc = "package io.izzel.arclight.common.mixin.core.tags;\n\n" +
+                "import net.minecraft.core.Registry;\n" +
+                "import net.minecraft.resources.ResourceKey;\n" +
+                "import net.minecraft.resources.ResourceLocation;\n" +
+                "import net.minecraft.tags.TagKey;\n" +
+                "import org.spongepowered.asm.mixin.Final;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Overwrite;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(value = TagKey.class, priority = 500)\n" +
+                "public abstract class TagKeyMixin<T> {\n\n" +
+                "    @Shadow @Final private ResourceKey<? extends Registry<T>> f_203867_;\n" +
+                "    @Shadow @Final private ResourceLocation f_203868_;\n\n" +
+                "    /**\n" +
+                "     * @author Maple Optimization\n" +
+                "     * @reason Direct field hash calculation to bypass Java Record invokedynamic LambdaForm overhead\n" +
+                "     */\n" +
+                "    @Overwrite\n" +
+                "    public int hashCode() {\n" +
+                "        return 31 * this.f_203867_.hashCode() + this.f_203868_.hashCode();\n" +
+                "    }\n\n" +
+                "    /**\n" +
+                "     * @author Maple Optimization\n" +
+                "     * @reason Direct field comparison to bypass Java Record invokedynamic LambdaForm overhead\n" +
+                "     */\n" +
+                "    @Overwrite\n" +
+                "    public boolean equals(Object other) {\n" +
+                "        if (this == (Object) other) {\n" +
+                "            return true;\n" +
+                "        }\n" +
+                "        if (!(other instanceof TagKey<?> o)) {\n" +
+                "            return false;\n" +
+                "        }\n" +
+                "        return this.f_203867_.equals(o.f_203867_()) && this.f_203868_.equals(o.f_203868_());\n" +
+                "    }\n" +
+                "}\n";
+
             Files.writeString(new File(bridgePkg, "NoiseChunkBridge.java").toPath(), noiseBridgeSrc);
             Files.writeString(new File(bridgePkg, "SurfaceContextBridge.java").toPath(), surfaceBridgeSrc);
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
@@ -1081,6 +1182,7 @@ public class ArclightPatcher {
             Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseGenMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceGenMixinSrc);
             Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
+            Files.writeString(new File(tagsPkg, "TagKeyMixin.java").toPath(), tagKeyMixinSrc);
 
             // Construct classpath from libraries and server jar
             File libDir = new File("/home/maple/Server1-20-1/libraries");
@@ -1098,7 +1200,8 @@ public class ArclightPatcher {
                 new File(mixinPkg, "SurfaceRules_ContextMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
-                new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath()
+                new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath(),
+                new File(tagsPkg, "TagKeyMixin.java").getAbsolutePath()
             );
             pb.redirectErrorStream(true);
             Process p = pb.start();
