@@ -1198,10 +1198,8 @@ public class ArclightPatcher {
 
             String flightSafeguardSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
                 "import net.minecraft.core.SectionPos;\n" +
-                "import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;\n" +
                 "import net.minecraft.server.level.ServerLevel;\n" +
                 "import net.minecraft.server.level.ServerPlayer;\n" +
-                "import net.minecraft.world.level.ChunkPos;\n" +
                 "import net.minecraft.world.level.chunk.ChunkAccess;\n" +
                 "import net.minecraft.world.level.chunk.ChunkStatus;\n" +
                 "import net.minecraft.world.level.chunk.LevelChunk;\n" +
@@ -1215,35 +1213,10 @@ public class ArclightPatcher {
                 "        int blockZ = (int) Math.floor(targetZ);\n" +
                 "        int chunkX = SectionPos.m_123171_(blockX);\n" +
                 "        int chunkZ = SectionPos.m_123171_(blockZ);\n\n" +
-                "        int prevChunkX = SectionPos.m_123171_((int) Math.floor(prevX));\n" +
-                "        int prevChunkZ = SectionPos.m_123171_((int) Math.floor(prevZ));\n\n" +
                 "        boolean isFlying = player.m_21255_() || player.m_150110_().f_35935_ || player.m_150110_().f_35934_;\n\n" +
-                "        double vx = targetX - prevX;\n" +
-                "        double vz = targetZ - prevZ;\n" +
-                "        double speedSqr = vx * vx + vz * vz;\n\n" +
-                "        // 1. Predictive Async Chunk Pre-Loading along flight vector (non-blocking)\n" +
-                "        if (speedSqr > 0.25 || isFlying) {\n" +
-                "            double speed = Math.sqrt(speedSqr);\n" +
-                "            if (speed > 0.001) {\n" +
-                "                double dirX = vx / speed;\n" +
-                "                double dirZ = vz / speed;\n" +
-                "                for (int step = 16; step <= 96; step += 16) {\n" +
-                "                    int aheadX = SectionPos.m_123171_((int) (targetX + dirX * step));\n" +
-                "                    int aheadZ = SectionPos.m_123171_((int) (targetZ + dirZ * step));\n" +
-                "                    try {\n" +
-                "                        level.m_7726_().m_8431_(aheadX, aheadZ, ChunkStatus.f_62326_, true);\n" +
-                "                    } catch (Throwable ignored) {}\n" +
-                "                }\n" +
-                "            }\n" +
-                "        }\n\n" +
-                "        // 2. Immediate chunk inspection (non-blocking, load=false)\n" +
+                "        // Pure non-blocking memory lookup (0ns lock, no futures, no managedBlock)\n" +
                 "        ChunkAccess chunk = level.m_7726_().m_7587_(chunkX, chunkZ, ChunkStatus.f_62326_, false);\n" +
-                "        if (chunk instanceof LevelChunk levelChunk) {\n" +
-                "            if (chunkX != prevChunkX || chunkZ != prevChunkZ) {\n" +
-                "                try {\n" +
-                "                    player.f_8906_.m_9829_(new ClientboundLevelChunkWithLightPacket(levelChunk, level.m_7726_().m_7827_(), null, null));\n" +
-                "                } catch (Throwable ignored) {}\n" +
-                "            }\n\n" +
+                "        if (chunk instanceof LevelChunk) {\n" +
                 "            int localX = blockX & 15;\n" +
                 "            int localZ = blockZ & 15;\n" +
                 "            int surfaceY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE, localX, localZ);\n" +
@@ -1259,12 +1232,10 @@ public class ArclightPatcher {
                 "                }\n" +
                 "            }\n" +
                 "        } else if (isFlying) {\n" +
-                "            try {\n" +
-                "                level.m_7726_().m_8431_(chunkX, chunkZ, ChunkStatus.f_62326_, true);\n" +
-                "            } catch (Throwable ignored) {}\n\n" +
                 "            int seaLevel = level.m_5736_();\n" +
-                "            if (targetY < seaLevel && prevY >= seaLevel) {\n" +
-                "                return seaLevel + 1.05;\n" +
+                "            double minSafeY = Math.max((double) seaLevel + 1.05, prevY - 0.5);\n" +
+                "            if (targetY < minSafeY && prevY >= minSafeY - 1.0) {\n" +
+                "                return minSafeY;\n" +
                 "            }\n" +
                 "        }\n\n" +
                 "        return targetY;\n" +
