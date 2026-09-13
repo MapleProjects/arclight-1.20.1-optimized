@@ -118,7 +118,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.level.chunk.ChunkGeneratorMixin\",",
-                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseChunkMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.SurfaceRules_ContextMixin\",\n    \"world.level.levelgen.SurfaceRules_SurfaceRuleMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseChunkMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.SurfaceRules_ContextMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -630,12 +630,6 @@ public class ArclightPatcher {
                 "    void bridge$updateY(int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z);\n" +
                 "}\n";
 
-            String surfaceRuleBridgeSrc = "package io.izzel.arclight.common.bridge.core.world.level.levelgen;\n\n" +
-                "import net.minecraft.world.level.block.state.BlockState;\n\n" +
-                "public interface SurfaceRuleBridge {\n" +
-                "    BlockState bridge$apply(int x, int y, int z);\n" +
-                "}\n";
-
             String optSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
                 "import net.minecraft.core.BlockPos;\n" +
                 "import net.minecraft.core.Holder;\n" +
@@ -704,6 +698,10 @@ public class ArclightPatcher {
                 "                return CONSTRUCTOR_SURFACE_CONTEXT.newInstance(system, randomState, chunk, noiseChunk, biomeGetter, biomes, context);\n" +
                 "            } catch (Throwable t) { throw new RuntimeException(t); }\n" +
                 "        }\n" +
+                "        return null;\n" +
+                "    }\n\n" +
+                "    public static BlockState applySurfaceRule(Object rule, int x, int y, int z) {\n" +
+                "        // Direct INVOKEINTERFACE injected via ASM\n" +
                 "        return null;\n" +
                 "    }\n\n" +
                 "    @SuppressWarnings(\"unchecked\")\n" +
@@ -794,20 +792,6 @@ public class ArclightPatcher {
                 "    @Override\n" +
                 "    public void bridge$updateY(int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z) {\n" +
                 "        this.m_189576_(stoneDepthAbove, stoneDepthBelow, waterHeight, x, y, z);\n" +
-                "    }\n" +
-                "}\n";
-
-            String surfaceRuleMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
-                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceRuleBridge;\n" +
-                "import net.minecraft.world.level.block.state.BlockState;\n" +
-                "import org.spongepowered.asm.mixin.Mixin;\n" +
-                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
-                "@Mixin(targets = \"net.minecraft.world.level.levelgen.SurfaceRules$SurfaceRule\")\n" +
-                "public abstract class SurfaceRules_SurfaceRuleMixin implements SurfaceRuleBridge {\n\n" +
-                "    @Shadow protected abstract BlockState m_183550_(int x, int y, int z);\n\n" +
-                "    @Override\n" +
-                "    public BlockState bridge$apply(int x, int y, int z) {\n" +
-                "        return this.m_183550_(x, y, z);\n" +
                 "    }\n" +
                 "}\n";
 
@@ -944,7 +928,6 @@ public class ArclightPatcher {
 
             String surfaceGenMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
                 "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceContextBridge;\n" +
-                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceRuleBridge;\n" +
                 "import io.izzel.arclight.common.mod.util.ChunkGenMathOptimizer;\n" +
                 "import net.minecraft.core.BlockPos;\n" +
                 "import net.minecraft.core.Holder;\n" +
@@ -998,7 +981,7 @@ public class ArclightPatcher {
                 "        Function<BlockPos, Holder<Biome>> biomeGetter = biomeManager::m_204214_;\n" +
                 "        Object rawContext = ChunkGenMathOptimizer.createSurfaceContext((SurfaceSystem)(Object)this, randomState, chunk, noiseChunk, biomeGetter, biomes, context);\n" +
                 "        SurfaceContextBridge contextBridge = (SurfaceContextBridge) rawContext;\n" +
-                "        SurfaceRuleBridge surfaceRule = (SurfaceRuleBridge) ((Function) ruleSource).apply(rawContext);\n" +
+                "        Object surfaceRule = ((Function) ruleSource).apply(rawContext);\n" +
                 "        BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();\n" +
                 "        int minY = chunk.m_141937_();\n\n" +
                 "        for (int localX = 0; localX < 16; ++localX) {\n" +
@@ -1051,7 +1034,7 @@ public class ArclightPatcher {
                 "                        contextBridge.bridge$updateY(stoneDepthAbove, stoneDepthBelow, waterHeight, worldX, currentY, worldZ);\n" +
                 "                    }\n" +
                 "                    if (currentBlock == this.f_189904_ && surfaceRule != null) {\n" +
-                "                        BlockState ruleState = surfaceRule.bridge$apply(worldX, currentY, worldZ);\n" +
+                "                        BlockState ruleState = ChunkGenMathOptimizer.applySurfaceRule(surfaceRule, worldX, currentY, worldZ);\n" +
                 "                        if (ruleState != null) {\n" +
                 "                            blockColumn.m_183639_(currentY, ruleState);\n" +
                 "                        }\n" +
@@ -1129,11 +1112,9 @@ public class ArclightPatcher {
 
             Files.writeString(new File(bridgePkg, "NoiseChunkBridge.java").toPath(), noiseBridgeSrc);
             Files.writeString(new File(bridgePkg, "SurfaceContextBridge.java").toPath(), surfaceBridgeSrc);
-            Files.writeString(new File(bridgePkg, "SurfaceRuleBridge.java").toPath(), surfaceRuleBridgeSrc);
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
             Files.writeString(new File(mixinPkg, "NoiseChunkMixin.java").toPath(), noiseChunkMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceRules_ContextMixin.java").toPath(), surfaceContextMixinSrc);
-            Files.writeString(new File(mixinPkg, "SurfaceRules_SurfaceRuleMixin.java").toPath(), surfaceRuleMixinSrc);
             Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseGenMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceGenMixinSrc);
             Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
@@ -1149,11 +1130,9 @@ public class ArclightPatcher {
                 "javac", "-proc:none", "-cp", cp.toString(), "-d", commonDir.getAbsolutePath(),
                 new File(bridgePkg, "NoiseChunkBridge.java").getAbsolutePath(),
                 new File(bridgePkg, "SurfaceContextBridge.java").getAbsolutePath(),
-                new File(bridgePkg, "SurfaceRuleBridge.java").getAbsolutePath(),
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseChunkMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceRules_ContextMixin.java").getAbsolutePath(),
-                new File(mixinPkg, "SurfaceRules_SurfaceRuleMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
                 new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath()
@@ -1168,7 +1147,36 @@ public class ArclightPatcher {
             }
             int code = p.waitFor();
             if (code == 0) {
-                System.out.println("Successfully compiled and injected Bridge interfaces and zero-MethodHandle mixins into common.jar!");
+                System.out.println("Successfully compiled Bridge interfaces and mixins!");
+                // Patch ChunkGenMathOptimizer.class with direct INVOKEINTERFACE bytecode for applySurfaceRule
+                File optClassFile = new File(commonDir, "io/izzel/arclight/common/mod/util/ChunkGenMathOptimizer.class");
+                if (optClassFile.exists()) {
+                    byte[] optBytes = Files.readAllBytes(optClassFile.toPath());
+                    ClassReader cr = new ClassReader(optBytes);
+                    ClassNode cn = new ClassNode();
+                    cr.accept(cn, 0);
+
+                    for (MethodNode mn : cn.methods) {
+                        if (mn.name.equals("applySurfaceRule") && mn.desc.equals("(Ljava/lang/Object;III)Lnet/minecraft/world/level/block/state/BlockState;")) {
+                            mn.instructions.clear();
+                            InsnList insns = new InsnList();
+                            insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                            insns.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/level/levelgen/SurfaceRules$SurfaceRule"));
+                            insns.add(new VarInsnNode(Opcodes.ILOAD, 1));
+                            insns.add(new VarInsnNode(Opcodes.ILOAD, 2));
+                            insns.add(new VarInsnNode(Opcodes.ILOAD, 3));
+                            insns.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE, "net/minecraft/world/level/levelgen/SurfaceRules$SurfaceRule", "m_183550_", "(III)Lnet/minecraft/world/level/block/state/BlockState;", true));
+                            insns.add(new InsnNode(Opcodes.ARETURN));
+                            mn.instructions.add(insns);
+                            System.out.println("ASM patched ChunkGenMathOptimizer.applySurfaceRule with direct INVOKEINTERFACE!");
+                            break;
+                        }
+                    }
+
+                    ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+                    cn.accept(cw);
+                    Files.write(optClassFile.toPath(), cw.toByteArray());
+                }
             } else {
                 throw new RuntimeException("Failed to compile chunk math optimizer mixins, exit code: " + code);
             }
