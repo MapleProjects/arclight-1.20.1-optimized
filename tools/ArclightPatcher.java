@@ -265,21 +265,55 @@ public class ArclightPatcher {
 
         for (MethodNode mn : cn.methods) {
             if (mn.name.equals("run") && mn.desc.equals("()V")) {
-                for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                    if (insn.getOpcode() == Opcodes.BIPUSH || insn.getOpcode() == Opcodes.SIPUSH) {
-                        IntInsnNode iin = (IntInsnNode) insn;
-                        if (iin.operand == 64 || iin.operand == 512) {
-                            mn.instructions.set(insn, new IntInsnNode(Opcodes.SIPUSH, 1024));
-                            System.out.println("Updated ArclightCallbackExecutor max tasks to 1024");
-                        }
-                    } else if (insn.getOpcode() == Opcodes.LDC) {
-                        LdcInsnNode ldc = (LdcInsnNode) insn;
-                        if (ldc.cst instanceof Long && ((Long) ldc.cst == 5000000L || (Long) ldc.cst == 20000000L)) {
-                            ldc.cst = 50000000L;
-                            System.out.println("Updated ArclightCallbackExecutor time limit to 50ms");
-                        }
-                    }
-                }
+                mn.instructions.clear();
+                InsnList insns = new InsnList();
+                LabelNode loopStart = new LabelNode();
+                LabelNode loopEnd = new LabelNode();
+
+                // int n = 16384;
+                insns.add(new IntInsnNode(Opcodes.SIPUSH, 16384));
+                insns.add(new VarInsnNode(Opcodes.ISTORE, 1));
+
+                insns.add(loopStart);
+                // if (--n < 0) goto loopEnd;
+                insns.add(new IincInsnNode(1, -1));
+                insns.add(new VarInsnNode(Opcodes.ILOAD, 1));
+                insns.add(new JumpInsnNode(Opcodes.IFLT, loopEnd));
+
+                // Runnable r = this.queue.poll();
+                insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                insns.add(new FieldInsnNode(Opcodes.GETFIELD, "io/izzel/arclight/common/mod/util/ArclightCallbackExecutor", "queue", "Ljava/util/Queue;"));
+                insns.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE, "java/util/Queue", "poll", "()Ljava/lang/Object;", true));
+                insns.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Runnable"));
+                insns.add(new VarInsnNode(Opcodes.ASTORE, 2));
+
+                // if (r == null) goto loopEnd;
+                insns.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                insns.add(new JumpInsnNode(Opcodes.IFNULL, loopEnd));
+
+                // try { r.run(); } catch (Throwable t) {}
+                LabelNode tryStart = new LabelNode();
+                LabelNode tryEnd = new LabelNode();
+                LabelNode catchStart = new LabelNode();
+
+                insns.add(tryStart);
+                insns.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                insns.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE, "java/lang/Runnable", "run", "()V", true));
+                insns.add(tryEnd);
+                insns.add(new JumpInsnNode(Opcodes.GOTO, loopStart));
+
+                insns.add(catchStart);
+                insns.add(new VarInsnNode(Opcodes.ASTORE, 3));
+                insns.add(new JumpInsnNode(Opcodes.GOTO, loopStart));
+
+                mn.tryCatchBlocks.clear();
+                mn.tryCatchBlocks.add(new TryCatchBlockNode(tryStart, tryEnd, catchStart, "java/lang/Throwable"));
+
+                insns.add(loopEnd);
+                insns.add(new InsnNode(Opcodes.RETURN));
+
+                mn.instructions.add(insns);
+                System.out.println("Rewrote ArclightCallbackExecutor.run to ultra-fast 16384 task drain without time limit!");
                 break;
             }
         }
