@@ -118,7 +118,7 @@ public class ArclightPatcher {
             if (!jsonContent.contains("world.level.levelgen.NoiseBasedChunkGeneratorMixin")) {
                 jsonContent = jsonContent.replace(
                     "\"world.level.chunk.ChunkGeneratorMixin\",",
-                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
+                    "\"world.level.chunk.ChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseBasedChunkGeneratorMixin\",\n    \"world.level.levelgen.NoiseChunkMixin\",\n    \"world.level.levelgen.SurfaceSystemMixin\",\n    \"world.level.levelgen.SurfaceRules_ContextMixin\",\n    \"world.level.levelgen.SurfaceRules_SurfaceRuleMixin\",\n    \"world.level.levelgen.placement.PlacedFeatureMixin\","
                 );
             }
             Files.writeString(coreMixinJson.toPath(), jsonContent);
@@ -607,12 +607,34 @@ public class ArclightPatcher {
             deleteDir(srcDir);
             srcDir.mkdirs();
 
+            File bridgePkg = new File(srcDir, "io/izzel/arclight/common/bridge/core/world/level/levelgen");
+            bridgePkg.mkdirs();
             File optPkg = new File(srcDir, "io/izzel/arclight/common/mod/util");
             optPkg.mkdirs();
             File mixinPkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen");
             mixinPkg.mkdirs();
-            File mcMixinPkg = new File(srcDir, "net/minecraft/world/level/levelgen");
-            mcMixinPkg.mkdirs();
+            File placePkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen/placement");
+            placePkg.mkdirs();
+
+            String noiseBridgeSrc = "package io.izzel.arclight.common.bridge.core.world.level.levelgen;\n\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n\n" +
+                "public interface NoiseChunkBridge {\n" +
+                "    int bridge$cellWidth();\n" +
+                "    int bridge$cellHeight();\n" +
+                "    BlockState bridge$computeBlockState();\n" +
+                "}\n";
+
+            String surfaceBridgeSrc = "package io.izzel.arclight.common.bridge.core.world.level.levelgen;\n\n" +
+                "public interface SurfaceContextBridge {\n" +
+                "    void bridge$updateXZ(int x, int z);\n" +
+                "    void bridge$updateY(int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z);\n" +
+                "}\n";
+
+            String surfaceRuleBridgeSrc = "package io.izzel.arclight.common.bridge.core.world.level.levelgen;\n\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n\n" +
+                "public interface SurfaceRuleBridge {\n" +
+                "    BlockState bridge$apply(int x, int y, int z);\n" +
+                "}\n";
 
             String optSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
                 "import net.minecraft.core.BlockPos;\n" +
@@ -629,11 +651,8 @@ public class ArclightPatcher {
                 "import net.minecraft.world.level.levelgen.SurfaceSystem;\n" +
                 "import net.minecraft.world.level.levelgen.WorldGenerationContext;\n" +
                 "import sun.misc.Unsafe;\n" +
-                "import java.lang.invoke.MethodHandle;\n" +
-                "import java.lang.invoke.MethodHandles;\n" +
                 "import java.lang.reflect.Constructor;\n" +
                 "import java.lang.reflect.Field;\n" +
-                "import java.lang.reflect.Method;\n" +
                 "import java.util.List;\n" +
                 "import java.util.function.Function;\n\n" +
                 "public class ChunkGenMathOptimizer {\n" +
@@ -641,13 +660,7 @@ public class ArclightPatcher {
                 "    private static final long INTERPOLATORS_OFFSET;\n" +
                 "    private static final long SLICE0_OFFSET;\n" +
                 "    private static final long SLICE1_OFFSET;\n" +
-                "    private static final MethodHandle MH_CELL_WIDTH;\n" +
-                "    private static final MethodHandle MH_CELL_HEIGHT;\n" +
-                "    private static final MethodHandle MH_COMPUTE_BLOCKSTATE;\n" +
-                "    private static final MethodHandle MH_SURFACE_CONTEXT_INIT;\n" +
-                "    private static final MethodHandle MH_SURFACE_UPDATE_XZ;\n" +
-                "    private static final MethodHandle MH_SURFACE_UPDATE_Y;\n" +
-                "    private static final MethodHandle MH_APPLY_SURFACE_RULE;\n" +
+                "    private static final Constructor<?> CONSTRUCTOR_SURFACE_CONTEXT;\n" +
                 "    private static final boolean INITIALIZED;\n\n" +
                 "    public static final BlockState STONE_STATE;\n" +
                 "    public static final BlockState DEEPSLATE_STATE;\n\n" +
@@ -656,13 +669,7 @@ public class ArclightPatcher {
                 "        long interpOff = 0;\n" +
                 "        long s0Off = 0;\n" +
                 "        long s1Off = 0;\n" +
-                "        MethodHandle mhWidth = null;\n" +
-                "        MethodHandle mhHeight = null;\n" +
-                "        MethodHandle mhBlockState = null;\n" +
-                "        MethodHandle mhSurfaceContext = null;\n" +
-                "        MethodHandle mhUpdateXZ = null;\n" +
-                "        MethodHandle mhUpdateY = null;\n" +
-                "        MethodHandle mhApplyRule = null;\n" +
+                "        Constructor<?> ctor = null;\n" +
                 "        boolean init = false;\n" +
                 "        try {\n" +
                 "            Field f = Unsafe.class.getDeclaredField(\"theUnsafe\");\n" +
@@ -675,30 +682,9 @@ public class ArclightPatcher {
                 "            Field s1Field = interpClass.getDeclaredField(\"f_188829_\");\n" +
                 "            s0Off = u.objectFieldOffset(s0Field);\n" +
                 "            s1Off = u.objectFieldOffset(s1Field);\n\n" +
-                "            MethodHandles.Lookup lookup = MethodHandles.lookup();\n" +
-                "            Method mWidth = NoiseChunk.class.getDeclaredMethod(\"m_224362_\");\n" +
-                "            mWidth.setAccessible(true);\n" +
-                "            mhWidth = lookup.unreflect(mWidth);\n\n" +
-                "            Method mHeight = NoiseChunk.class.getDeclaredMethod(\"m_224363_\");\n" +
-                "            mHeight.setAccessible(true);\n" +
-                "            mhHeight = lookup.unreflect(mHeight);\n\n" +
-                "            Method mBlockState = NoiseChunk.class.getDeclaredMethod(\"m_209247_\");\n" +
-                "            mBlockState.setAccessible(true);\n" +
-                "            mhBlockState = lookup.unreflect(mBlockState);\n\n" +
                 "            Class<?> ctxClass = Class.forName(\"net.minecraft.world.level.levelgen.SurfaceRules$Context\");\n" +
-                "            Constructor<?> ctor = ctxClass.getDeclaredConstructors()[0];\n" +
-                "            ctor.setAccessible(true);\n" +
-                "            mhSurfaceContext = lookup.unreflectConstructor(ctor);\n\n" +
-                "            Method mUpdateXZ = ctxClass.getDeclaredMethod(\"m_189569_\", int.class, int.class);\n" +
-                "            mUpdateXZ.setAccessible(true);\n" +
-                "            mhUpdateXZ = lookup.unreflect(mUpdateXZ);\n\n" +
-                "            Method mUpdateY = ctxClass.getDeclaredMethod(\"m_189576_\", int.class, int.class, int.class, int.class, int.class, int.class);\n" +
-                "            mUpdateY.setAccessible(true);\n" +
-                "            mhUpdateY = lookup.unreflect(mUpdateY);\n\n" +
-                "            Class<?> ruleClass = Class.forName(\"net.minecraft.world.level.levelgen.SurfaceRules$SurfaceRule\");\n" +
-                "            Method mApply = ruleClass.getDeclaredMethod(\"m_183550_\", int.class, int.class, int.class);\n" +
-                "            mApply.setAccessible(true);\n" +
-                "            mhApplyRule = lookup.unreflect(mApply);\n\n" +
+                "            ctor = ctxClass.getDeclaredConstructors()[0];\n" +
+                "            ctor.setAccessible(true);\n\n" +
                 "            init = true;\n" +
                 "        } catch (Throwable t) {\n" +
                 "            init = false;\n" +
@@ -707,54 +693,16 @@ public class ArclightPatcher {
                 "        INTERPOLATORS_OFFSET = interpOff;\n" +
                 "        SLICE0_OFFSET = s0Off;\n" +
                 "        SLICE1_OFFSET = s1Off;\n" +
-                "        MH_CELL_WIDTH = mhWidth;\n" +
-                "        MH_CELL_HEIGHT = mhHeight;\n" +
-                "        MH_COMPUTE_BLOCKSTATE = mhBlockState;\n" +
-                "        MH_SURFACE_CONTEXT_INIT = mhSurfaceContext;\n" +
-                "        MH_SURFACE_UPDATE_XZ = mhUpdateXZ;\n" +
-                "        MH_SURFACE_UPDATE_Y = mhUpdateY;\n" +
-                "        MH_APPLY_SURFACE_RULE = mhApplyRule;\n" +
+                "        CONSTRUCTOR_SURFACE_CONTEXT = ctor;\n" +
                 "        INITIALIZED = init;\n\n" +
                 "        STONE_STATE = Blocks.f_50069_.m_49966_();\n" +
                 "        DEEPSLATE_STATE = Blocks.f_152482_.m_49966_();\n" +
                 "    }\n\n" +
-                "    public static int getCellWidth(NoiseChunk noiseChunk) {\n" +
-                "        if (MH_CELL_WIDTH != null) {\n" +
-                "            try { return (int) MH_CELL_WIDTH.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
-                "        }\n" +
-                "        return 4;\n" +
-                "    }\n\n" +
-                "    public static int getCellHeight(NoiseChunk noiseChunk) {\n" +
-                "        if (MH_CELL_HEIGHT != null) {\n" +
-                "            try { return (int) MH_CELL_HEIGHT.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
-                "        }\n" +
-                "        return 8;\n" +
-                "    }\n\n" +
-                "    public static BlockState computeBlockState(NoiseChunk noiseChunk) {\n" +
-                "        if (MH_COMPUTE_BLOCKSTATE != null) {\n" +
-                "            try { return (BlockState) MH_COMPUTE_BLOCKSTATE.invokeExact(noiseChunk); } catch (Throwable ignored) {}\n" +
-                "        }\n" +
-                "        return null;\n" +
-                "    }\n\n" +
                 "    public static Object createSurfaceContext(SurfaceSystem system, RandomState randomState, ChunkAccess chunk, NoiseChunk noiseChunk, Function<BlockPos, Holder<Biome>> biomeGetter, Registry<Biome> biomes, WorldGenerationContext context) {\n" +
-                "        if (MH_SURFACE_CONTEXT_INIT != null) {\n" +
-                "            try { return MH_SURFACE_CONTEXT_INIT.invoke(system, randomState, chunk, noiseChunk, biomeGetter, biomes, context); } catch (Throwable t) { throw new RuntimeException(t); }\n" +
-                "        }\n" +
-                "        return null;\n" +
-                "    }\n\n" +
-                "    public static void updateSurfaceContextXZ(Object context, int x, int z) {\n" +
-                "        if (MH_SURFACE_UPDATE_XZ != null && context != null) {\n" +
-                "            try { MH_SURFACE_UPDATE_XZ.invoke(context, x, z); } catch (Throwable ignored) {}\n" +
-                "        }\n" +
-                "    }\n\n" +
-                "    public static void updateSurfaceContextY(Object context, int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z) {\n" +
-                "        if (MH_SURFACE_UPDATE_Y != null && context != null) {\n" +
-                "            try { MH_SURFACE_UPDATE_Y.invoke(context, stoneDepthAbove, stoneDepthBelow, waterHeight, x, y, z); } catch (Throwable ignored) {}\n" +
-                "        }\n" +
-                "    }\n\n" +
-                "    public static BlockState applySurfaceRule(Object surfaceRule, int x, int y, int z) {\n" +
-                "        if (MH_APPLY_SURFACE_RULE != null && surfaceRule != null) {\n" +
-                "            try { return (BlockState) MH_APPLY_SURFACE_RULE.invoke(surfaceRule, x, y, z); } catch (Throwable ignored) {}\n" +
+                "        if (CONSTRUCTOR_SURFACE_CONTEXT != null) {\n" +
+                "            try {\n" +
+                "                return CONSTRUCTOR_SURFACE_CONTEXT.newInstance(system, randomState, chunk, noiseChunk, biomeGetter, biomes, context);\n" +
+                "            } catch (Throwable t) { throw new RuntimeException(t); }\n" +
                 "        }\n" +
                 "        return null;\n" +
                 "    }\n\n" +
@@ -806,7 +754,65 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
-            String noiseMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+            String noiseChunkMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.NoiseChunkBridge;\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n" +
+                "import net.minecraft.world.level.levelgen.NoiseChunk;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(NoiseChunk.class)\n" +
+                "public abstract class NoiseChunkMixin implements NoiseChunkBridge {\n\n" +
+                "    @Shadow protected abstract int m_224362_();\n" +
+                "    @Shadow protected abstract int m_224363_();\n" +
+                "    @Shadow protected abstract BlockState m_209247_();\n\n" +
+                "    @Override\n" +
+                "    public int bridge$cellWidth() {\n" +
+                "        return this.m_224362_();\n" +
+                "    }\n\n" +
+                "    @Override\n" +
+                "    public int bridge$cellHeight() {\n" +
+                "        return this.m_224363_();\n" +
+                "    }\n\n" +
+                "    @Override\n" +
+                "    public BlockState bridge$computeBlockState() {\n" +
+                "        return this.m_209247_();\n" +
+                "    }\n" +
+                "}\n";
+
+            String surfaceContextMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceContextBridge;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(targets = \"net.minecraft.world.level.levelgen.SurfaceRules$Context\")\n" +
+                "public abstract class SurfaceRules_ContextMixin implements SurfaceContextBridge {\n\n" +
+                "    @Shadow protected abstract void m_189569_(int x, int z);\n" +
+                "    @Shadow protected abstract void m_189576_(int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z);\n\n" +
+                "    @Override\n" +
+                "    public void bridge$updateXZ(int x, int z) {\n" +
+                "        this.m_189569_(x, z);\n" +
+                "    }\n\n" +
+                "    @Override\n" +
+                "    public void bridge$updateY(int stoneDepthAbove, int stoneDepthBelow, int waterHeight, int x, int y, int z) {\n" +
+                "        this.m_189576_(stoneDepthAbove, stoneDepthBelow, waterHeight, x, y, z);\n" +
+                "    }\n" +
+                "}\n";
+
+            String surfaceRuleMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceRuleBridge;\n" +
+                "import net.minecraft.world.level.block.state.BlockState;\n" +
+                "import org.spongepowered.asm.mixin.Mixin;\n" +
+                "import org.spongepowered.asm.mixin.Shadow;\n\n" +
+                "@Mixin(targets = \"net.minecraft.world.level.levelgen.SurfaceRules$SurfaceRule\")\n" +
+                "public abstract class SurfaceRules_SurfaceRuleMixin implements SurfaceRuleBridge {\n\n" +
+                "    @Shadow protected abstract BlockState m_183550_(int x, int y, int z);\n\n" +
+                "    @Override\n" +
+                "    public BlockState bridge$apply(int x, int y, int z) {\n" +
+                "        return this.m_183550_(x, y, z);\n" +
+                "    }\n" +
+                "}\n";
+
+            String noiseGenMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.NoiseChunkBridge;\n" +
                 "import io.izzel.arclight.common.mod.util.ChunkGenMathOptimizer;\n" +
                 "import net.minecraft.core.BlockPos;\n" +
                 "import net.minecraft.core.Holder;\n" +
@@ -835,11 +841,12 @@ public class ArclightPatcher {
                 "    @Shadow private native BlockState m_198231_(NoiseChunk noiseChunk, int x, int y, int z, BlockState blockState);\n\n" +
                 "    /**\n" +
                 "     * @author Maple Mathematical Engine Restructuring\n" +
-                "     * @reason World Mesh analytical horizon projection for instant high-speed chunk materialization\n" +
+                "     * @reason World Mesh analytical horizon projection with zero MethodHandle overhead\n" +
                 "     */\n" +
                 "    @Overwrite(remap = false)\n" +
                 "    private ChunkAccess m_224284_(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunk, int minCellY, int cellCountY) {\n" +
                 "        NoiseChunk noiseChunk = chunk.m_223012_(generator -> this.m_224251_(structureManager, blender, randomState, chunk));\n" +
+                "        NoiseChunkBridge noiseBridge = (NoiseChunkBridge) (Object) noiseChunk;\n" +
                 "        Heightmap oceanFloor = chunk.m_6005_(Heightmap.Types.OCEAN_FLOOR_WG);\n" +
                 "        Heightmap worldSurface = chunk.m_6005_(Heightmap.Types.WORLD_SURFACE_WG);\n" +
                 "        ChunkPos chunkPos = chunk.m_7697_();\n" +
@@ -848,8 +855,8 @@ public class ArclightPatcher {
                 "        Aquifer aquifer = noiseChunk.m_188817_();\n" +
                 "        noiseChunk.m_188791_();\n" +
                 "        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();\n\n" +
-                "        int cellWidth = ChunkGenMathOptimizer.getCellWidth(noiseChunk);\n" +
-                "        int cellHeight = ChunkGenMathOptimizer.getCellHeight(noiseChunk);\n" +
+                "        int cellWidth = noiseBridge.bridge$cellWidth();\n" +
+                "        int cellHeight = noiseBridge.bridge$cellHeight();\n" +
                 "        int cellCountX = 16 / cellWidth;\n" +
                 "        int cellCountZ = 16 / cellWidth;\n\n" +
                 "        BlockState defaultBlock = this.f_64318_.m_203334_().f_64440_();\n\n" +
@@ -906,7 +913,7 @@ public class ArclightPatcher {
                 "                                int localZ = worldZ & 15;\n" +
                 "                                double zRatio = (double) zInside / (double) cellWidth;\n" +
                 "                                noiseChunk.m_209241_(worldZ, zRatio);\n\n" +
-                "                                BlockState blockState = ChunkGenMathOptimizer.computeBlockState(noiseChunk);\n" +
+                "                                BlockState blockState = noiseBridge.bridge$computeBlockState();\n" +
                 "                                if (blockState == null) {\n" +
                 "                                    blockState = defaultBlock;\n" +
                 "                                }\n\n" +
@@ -935,7 +942,9 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
-            String surfaceMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+            String surfaceGenMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen;\n\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceContextBridge;\n" +
+                "import io.izzel.arclight.common.bridge.core.world.level.levelgen.SurfaceRuleBridge;\n" +
                 "import io.izzel.arclight.common.mod.util.ChunkGenMathOptimizer;\n" +
                 "import net.minecraft.core.BlockPos;\n" +
                 "import net.minecraft.core.Holder;\n" +
@@ -967,7 +976,7 @@ public class ArclightPatcher {
                 "    @Shadow private native boolean m_189952_(BlockState state);\n\n" +
                 "    /**\n" +
                 "     * @author Maple Optimization\n" +
-                "     * @reason High-performance surface rule evaluator with early-depth termination\n" +
+                "     * @reason High-performance zero-reflection surface rule evaluator with early-depth termination\n" +
                 "     */\n" +
                 "    @SuppressWarnings(\"unchecked\")\n" +
                 "    @Overwrite(remap = false)\n" +
@@ -987,8 +996,9 @@ public class ArclightPatcher {
                 "            }\n" +
                 "        };\n\n" +
                 "        Function<BlockPos, Holder<Biome>> biomeGetter = biomeManager::m_204214_;\n" +
-                "        Object ruleContext = ChunkGenMathOptimizer.createSurfaceContext((SurfaceSystem)(Object)this, randomState, chunk, noiseChunk, biomeGetter, biomes, context);\n" +
-                "        Object surfaceRule = ((Function) ruleSource).apply(ruleContext);\n" +
+                "        Object rawContext = ChunkGenMathOptimizer.createSurfaceContext((SurfaceSystem)(Object)this, randomState, chunk, noiseChunk, biomeGetter, biomes, context);\n" +
+                "        SurfaceContextBridge contextBridge = (SurfaceContextBridge) rawContext;\n" +
+                "        SurfaceRuleBridge surfaceRule = (SurfaceRuleBridge) ((Function) ruleSource).apply(rawContext);\n" +
                 "        BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();\n" +
                 "        int minY = chunk.m_141937_();\n\n" +
                 "        for (int localX = 0; localX < 16; ++localX) {\n" +
@@ -1002,7 +1012,9 @@ public class ArclightPatcher {
                 "                    this.m_189954_(blockColumn, worldX, worldZ, surfaceY, chunk);\n" +
                 "                }\n\n" +
                 "                int topY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) + 1;\n" +
-                "                ChunkGenMathOptimizer.updateSurfaceContextXZ(ruleContext, worldX, worldZ);\n\n" +
+                "                if (contextBridge != null) {\n" +
+                "                    contextBridge.bridge$updateXZ(worldX, worldZ);\n" +
+                "                }\n\n" +
                 "                int stoneDepthAbove = 0;\n" +
                 "                int waterHeight = Integer.MIN_VALUE;\n" +
                 "                int stoneDepthBelowMarker = Integer.MAX_VALUE;\n\n" +
@@ -1035,9 +1047,11 @@ public class ArclightPatcher {
                 "                    if (stoneDepthAbove > 32 && stoneDepthBelow > 32 && currentY < 50) {\n" +
                 "                        break;\n" +
                 "                    }\n\n" +
-                "                    ChunkGenMathOptimizer.updateSurfaceContextY(ruleContext, stoneDepthAbove, stoneDepthBelow, waterHeight, worldX, currentY, worldZ);\n" +
-                "                    if (currentBlock == this.f_189904_) {\n" +
-                "                        BlockState ruleState = ChunkGenMathOptimizer.applySurfaceRule(surfaceRule, worldX, currentY, worldZ);\n" +
+                "                    if (contextBridge != null) {\n" +
+                "                        contextBridge.bridge$updateY(stoneDepthAbove, stoneDepthBelow, waterHeight, worldX, currentY, worldZ);\n" +
+                "                    }\n" +
+                "                    if (currentBlock == this.f_189904_ && surfaceRule != null) {\n" +
+                "                        BlockState ruleState = surfaceRule.bridge$apply(worldX, currentY, worldZ);\n" +
                 "                        if (ruleState != null) {\n" +
                 "                            blockColumn.m_183639_(currentY, ruleState);\n" +
                 "                        }\n" +
@@ -1047,9 +1061,6 @@ public class ArclightPatcher {
                 "        }\n" +
                 "    }\n" +
                 "}\n";
-
-            File placePkg = new File(srcDir, "io/izzel/arclight/common/mixin/core/world/level/levelgen/placement");
-            placePkg.mkdirs();
 
             String placedFeatureMixinSrc = "package io.izzel.arclight.common.mixin.core.world.level.levelgen.placement;\n\n" +
                 "import net.minecraft.core.BlockPos;\n" +
@@ -1116,9 +1127,15 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            Files.writeString(new File(bridgePkg, "NoiseChunkBridge.java").toPath(), noiseBridgeSrc);
+            Files.writeString(new File(bridgePkg, "SurfaceContextBridge.java").toPath(), surfaceBridgeSrc);
+            Files.writeString(new File(bridgePkg, "SurfaceRuleBridge.java").toPath(), surfaceRuleBridgeSrc);
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
-            Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseMixinSrc);
-            Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceMixinSrc);
+            Files.writeString(new File(mixinPkg, "NoiseChunkMixin.java").toPath(), noiseChunkMixinSrc);
+            Files.writeString(new File(mixinPkg, "SurfaceRules_ContextMixin.java").toPath(), surfaceContextMixinSrc);
+            Files.writeString(new File(mixinPkg, "SurfaceRules_SurfaceRuleMixin.java").toPath(), surfaceRuleMixinSrc);
+            Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseGenMixinSrc);
+            Files.writeString(new File(mixinPkg, "SurfaceSystemMixin.java").toPath(), surfaceGenMixinSrc);
             Files.writeString(new File(placePkg, "PlacedFeatureMixin.java").toPath(), placedFeatureMixinSrc);
 
             // Construct classpath from libraries and server jar
@@ -1130,7 +1147,13 @@ public class ArclightPatcher {
 
             ProcessBuilder pb = new ProcessBuilder(
                 "javac", "-proc:none", "-cp", cp.toString(), "-d", commonDir.getAbsolutePath(),
+                new File(bridgePkg, "NoiseChunkBridge.java").getAbsolutePath(),
+                new File(bridgePkg, "SurfaceContextBridge.java").getAbsolutePath(),
+                new File(bridgePkg, "SurfaceRuleBridge.java").getAbsolutePath(),
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
+                new File(mixinPkg, "NoiseChunkMixin.java").getAbsolutePath(),
+                new File(mixinPkg, "SurfaceRules_ContextMixin.java").getAbsolutePath(),
+                new File(mixinPkg, "SurfaceRules_SurfaceRuleMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceSystemMixin.java").getAbsolutePath(),
                 new File(placePkg, "PlacedFeatureMixin.java").getAbsolutePath()
@@ -1145,7 +1168,7 @@ public class ArclightPatcher {
             }
             int code = p.waitFor();
             if (code == 0) {
-                System.out.println("Successfully compiled and injected ChunkGenMathOptimizer, NoiseBasedChunkGeneratorMixin, SurfaceSystemMixin, and PlacedFeatureMixin into common.jar!");
+                System.out.println("Successfully compiled and injected Bridge interfaces and zero-MethodHandle mixins into common.jar!");
             } else {
                 throw new RuntimeException("Failed to compile chunk math optimizer mixins, exit code: " + code);
             }
