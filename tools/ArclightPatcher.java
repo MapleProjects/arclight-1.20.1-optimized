@@ -682,26 +682,26 @@ public class ArclightPatcher {
                 "            double v110 = s1[cellZ][cellY + 1];\n" +
                 "            double v111 = s1[cellZ + 1][cellY + 1];\n\n" +
                 "            // 1. Pure Air Culling (above sea level)\n" +
-                "            if (worldYBase >= 64 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "            if (worldYBase >= 64) {\n" +
                 "                double max0 = Math.max(Math.max(v000, v001), Math.max(v100, v101));\n" +
                 "                double max1 = Math.max(Math.max(v010, v011), Math.max(v110, v111));\n" +
-                "                if (Math.max(max0, max1) <= -0.0001) {\n" +
+                "                if (Math.max(max0, max1) <= 0.0) {\n" +
                 "                    return 1;\n" +
                 "                }\n" +
                 "            }\n\n" +
                 "            // 2. Pure Solid Deepslate (deep underground)\n" +
-                "            if (worldYBase + cellHeight <= 0 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "            if (worldYBase + cellHeight <= 0) {\n" +
                 "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
                 "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
-                "                if (Math.min(min0, min1) >= 0.01) {\n" +
+                "                if (Math.min(min0, min1) >= 0.0) {\n" +
                 "                    return 2;\n" +
                 "                }\n" +
                 "            }\n\n" +
                 "            // 3. Pure Solid Stone (subsurface layer)\n" +
-                "            if (worldYBase >= 0 && (aquifer == null || !aquifer.m_142203_())) {\n" +
+                "            if (worldYBase >= 0) {\n" +
                 "                double min0 = Math.min(Math.min(v000, v001), Math.min(v100, v101));\n" +
                 "                double min1 = Math.min(Math.min(v010, v011), Math.min(v110, v111));\n" +
-                "                if (Math.min(min0, min1) >= 0.01) {\n" +
+                "                if (Math.min(min0, min1) >= 0.0) {\n" +
                 "                    return 3;\n" +
                 "                }\n" +
                 "            }\n" +
@@ -964,6 +964,7 @@ public class ArclightPatcher {
                 "                    if (currentBlock.m_60795_()) {\n" +
                 "                        stoneDepthAbove = 0;\n" +
                 "                        waterHeight = Integer.MIN_VALUE;\n" +
+                "                        stoneDepthBelowMarker = Integer.MAX_VALUE;\n" +
                 "                        continue;\n" +
                 "                    }\n\n" +
                 "                    FluidState fluidState = currentBlock.m_60819_();\n" +
@@ -971,11 +972,19 @@ public class ArclightPatcher {
                 "                        if (waterHeight == Integer.MIN_VALUE) {\n" +
                 "                            waterHeight = currentY + 1;\n" +
                 "                        }\n" +
+                "                        stoneDepthAbove = 0;\n" +
+                "                        stoneDepthBelowMarker = Integer.MAX_VALUE;\n" +
+                "                        continue;\n" +
+                "                    }\n\n" +
+                "                    ++stoneDepthAbove;\n" +
+                "                    if (stoneDepthAbove > 16) {\n" +
+                "                        // Deep underground: surface rules never apply beyond depth 16\n" +
                 "                        continue;\n" +
                 "                    }\n\n" +
                 "                    if (stoneDepthBelowMarker >= currentY) {\n" +
                 "                        stoneDepthBelowMarker = DimensionType.f_188294_;\n" +
-                "                        for (int scanY = currentY - 1; scanY >= minY - 1; --scanY) {\n" +
+                "                        int maxScan = Math.max(minY - 1, currentY - 20);\n" +
+                "                        for (int scanY = currentY - 1; scanY >= maxScan; --scanY) {\n" +
                 "                            BlockState scanBlock = blockColumn.m_183556_(scanY);\n" +
                 "                            if (!this.m_189952_(scanBlock)) {\n" +
                 "                                stoneDepthBelowMarker = scanY + 1;\n" +
@@ -983,11 +992,7 @@ public class ArclightPatcher {
                 "                            }\n" +
                 "                        }\n" +
                 "                    }\n\n" +
-                "                    ++stoneDepthAbove;\n" +
                 "                    int stoneDepthBelow = currentY - stoneDepthBelowMarker + 1;\n\n" +
-                "                    if (stoneDepthAbove > 32 && stoneDepthBelow > 32 && currentY < 50) {\n" +
-                "                        break;\n" +
-                "                    }\n\n" +
                 "                    if (contextBridge != null) {\n" +
                 "                        contextBridge.bridge$updateY(stoneDepthAbove, stoneDepthBelow, waterHeight, worldX, currentY, worldZ);\n" +
                 "                    }\n" +
