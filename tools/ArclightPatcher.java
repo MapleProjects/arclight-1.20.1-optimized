@@ -1251,15 +1251,20 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
-            String flightSafeguardSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
+             String flightSafeguardSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
+                "import it.unimi.dsi.fastutil.longs.Long2IntLinkedOpenHashMap;\n" +
                 "import net.minecraft.core.SectionPos;\n" +
                 "import net.minecraft.server.level.ServerLevel;\n" +
                 "import net.minecraft.server.level.ServerPlayer;\n" +
                 "import net.minecraft.world.level.chunk.ChunkAccess;\n" +
+                "import net.minecraft.world.level.chunk.ChunkGenerator;\n" +
                 "import net.minecraft.world.level.chunk.ChunkStatus;\n" +
                 "import net.minecraft.world.level.chunk.LevelChunk;\n" +
-                "import net.minecraft.world.level.levelgen.Heightmap;\n\n" +
+                "import net.minecraft.world.level.levelgen.Heightmap;\n" +
+                "import net.minecraft.world.level.levelgen.RandomState;\n\n" +
                 "public class WorldMeshFlightSafeguard {\n\n" +
+                "    private static final Long2IntLinkedOpenHashMap WORLD_MESH_HEIGHT_CACHE = new Long2IntLinkedOpenHashMap(4096);\n" +
+                "    private static final int MAX_CACHE_SIZE = 8192;\n\n" +
                 "    public static double safeguardPlayerY(ServerPlayer player, double targetX, double targetY, double targetZ, double prevX, double prevY, double prevZ) {\n" +
                 "        if (player == null) return targetY;\n\n" +
                 "        // Boundary sanity check (prevent teleport / uninitialized coordinate freezing)\n" +
@@ -1276,20 +1281,50 @@ public class ArclightPatcher {
                 "        int blockZ = (int) Math.floor(targetZ);\n" +
                 "        int chunkX = SectionPos.m_123171_(blockX);\n" +
                 "        int chunkZ = SectionPos.m_123171_(blockZ);\n\n" +
-                "        // Pure non-blocking memory lookup\n" +
+                "        int minBuildY = level.m_141937_();\n" +
+                "        int groundY = minBuildY;\n\n" +
+                "        // Fast path 1: Loaded chunk in memory\n" +
                 "        ChunkAccess chunk = level.m_7726_().m_7587_(chunkX, chunkZ, ChunkStatus.f_62326_, false);\n" +
                 "        if (chunk instanceof LevelChunk) {\n" +
                 "            int localX = blockX & 15;\n" +
                 "            int localZ = blockZ & 15;\n" +
                 "            int surfaceY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE, localX, localZ);\n" +
                 "            int oceanFloorY = chunk.m_5885_(Heightmap.Types.OCEAN_FLOOR, localX, localZ);\n" +
-                "            int groundY = Math.max(surfaceY, oceanFloorY);\n" +
-                "            int minBuildY = level.m_141937_();\n\n" +
-                "            if (groundY > minBuildY && groundY < 320) {\n" +
-                "                double targetGroundY = groundY + 1.05;\n" +
-                "                if (targetY < targetGroundY && (prevY >= groundY - 2.0 || prevY > targetY)) {\n" +
-                "                    return targetGroundY;\n" +
+                "            groundY = Math.max(surfaceY, oceanFloorY);\n" +
+                "        } else {\n" +
+                "            // Fast path 2: World Mesh mathematical terrain evaluation (instant 0-chunk knowledge)\n" +
+                "            long key = (((long) blockX) << 32) | (((long) blockZ) & 0xFFFFFFFFL);\n" +
+                "            int cachedY = Integer.MIN_VALUE;\n" +
+                "            synchronized (WORLD_MESH_HEIGHT_CACHE) {\n" +
+                "                if (WORLD_MESH_HEIGHT_CACHE.containsKey(key)) {\n" +
+                "                    cachedY = WORLD_MESH_HEIGHT_CACHE.get(key);\n" +
                 "                }\n" +
+                "            }\n" +
+                "            if (cachedY != Integer.MIN_VALUE) {\n" +
+                "                groundY = cachedY;\n" +
+                "            } else {\n" +
+                "                try {\n" +
+                "                    ChunkGenerator generator = level.m_7726_().m_8481_();\n" +
+                "                    RandomState randomState = level.m_7726_().m_214994_();\n" +
+                "                    if (generator != null && randomState != null) {\n" +
+                "                        int baseSurface = generator.m_214096_(blockX, blockZ, Heightmap.Types.WORLD_SURFACE_WG, level, randomState);\n" +
+                "                        int baseOcean = generator.m_214096_(blockX, blockZ, Heightmap.Types.OCEAN_FLOOR_WG, level, randomState);\n" +
+                "                        groundY = Math.max(baseSurface, baseOcean);\n" +
+                "                        synchronized (WORLD_MESH_HEIGHT_CACHE) {\n" +
+                "                            if (WORLD_MESH_HEIGHT_CACHE.size() >= MAX_CACHE_SIZE) {\n" +
+                "                                WORLD_MESH_HEIGHT_CACHE.removeFirstInt();\n" +
+                "                            }\n" +
+                "                            WORLD_MESH_HEIGHT_CACHE.put(key, groundY);\n" +
+                "                        }\n" +
+                "                    }\n" +
+                "                } catch (Throwable ignored) {\n" +
+                "                }\n" +
+                "            }\n" +
+                "        }\n\n" +
+                "        if (groundY > minBuildY && groundY < 320) {\n" +
+                "            double targetGroundY = groundY + 1.05;\n" +
+                "            if (targetY < targetGroundY && (prevY >= groundY - 2.0 || prevY > targetY)) {\n" +
+                "                return targetGroundY;\n" +
                 "            }\n" +
                 "        }\n\n" +
                 "        return targetY;\n" +
