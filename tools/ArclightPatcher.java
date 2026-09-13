@@ -613,10 +613,32 @@ public class ArclightPatcher {
                         }
                     }
                 }
+
+                // 3. Inject WorldMeshFlightSafeguard.safeguardPlayerY in m_7185_
+                if (mn.name.equals("m_7185_")) {
+                    for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                        if (insn.getOpcode() == Opcodes.DSTORE && ((VarInsnNode) insn).var == 15) {
+                            InsnList safeguardList = new InsnList();
+                            safeguardList.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                            safeguardList.add(new FieldInsnNode(Opcodes.GETFIELD, "io/izzel/arclight/common/mixin/core/network/ServerPlayNetHandlerMixin", "f_9743_", "Lnet/minecraft/server/level/ServerPlayer;"));
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 3));  // targetX (d0)
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 5));  // targetY (d1)
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 7));  // targetZ (d2)
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 11)); // prevX
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 13)); // prevY
+                            safeguardList.add(new VarInsnNode(Opcodes.DLOAD, 15)); // prevZ
+                            safeguardList.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "io/izzel/arclight/common/mod/util/WorldMeshFlightSafeguard", "safeguardPlayerY", "(Lnet/minecraft/server/level/ServerPlayer;DDDDDD)D", false));
+                            safeguardList.add(new VarInsnNode(Opcodes.DSTORE, 5)); // update targetY (d1)
+                            mn.instructions.insert(insn, safeguardList);
+                            System.out.println("Injected WorldMeshFlightSafeguard.safeguardPlayerY into m_7185_!");
+                            break;
+                        }
+                    }
+                }
             }
         }
 
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
         cn.accept(cw);
         return cw.toByteArray();
     }
@@ -1174,9 +1196,85 @@ public class ArclightPatcher {
                 "    }\n" +
                 "}\n";
 
+            String flightSafeguardSrc = "package io.izzel.arclight.common.mod.util;\n\n" +
+                "import net.minecraft.core.SectionPos;\n" +
+                "import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;\n" +
+                "import net.minecraft.server.level.ServerLevel;\n" +
+                "import net.minecraft.server.level.ServerPlayer;\n" +
+                "import net.minecraft.world.level.ChunkPos;\n" +
+                "import net.minecraft.world.level.chunk.ChunkAccess;\n" +
+                "import net.minecraft.world.level.chunk.ChunkStatus;\n" +
+                "import net.minecraft.world.level.chunk.LevelChunk;\n" +
+                "import net.minecraft.world.level.levelgen.Heightmap;\n\n" +
+                "public class WorldMeshFlightSafeguard {\n\n" +
+                "    public static double safeguardPlayerY(ServerPlayer player, double targetX, double targetY, double targetZ, double prevX, double prevY, double prevZ) {\n" +
+                "        if (player == null) return targetY;\n\n" +
+                "        ServerLevel level = player.m_284548_();\n" +
+                "        if (level == null) return targetY;\n\n" +
+                "        int blockX = (int) Math.floor(targetX);\n" +
+                "        int blockZ = (int) Math.floor(targetZ);\n" +
+                "        int chunkX = SectionPos.m_123171_(blockX);\n" +
+                "        int chunkZ = SectionPos.m_123171_(blockZ);\n\n" +
+                "        int prevChunkX = SectionPos.m_123171_((int) Math.floor(prevX));\n" +
+                "        int prevChunkZ = SectionPos.m_123171_((int) Math.floor(prevZ));\n\n" +
+                "        boolean isFlying = player.m_21255_() || player.m_150110_().f_35935_ || player.m_150110_().f_35934_;\n\n" +
+                "        double vx = targetX - prevX;\n" +
+                "        double vz = targetZ - prevZ;\n" +
+                "        double speedSqr = vx * vx + vz * vz;\n\n" +
+                "        // 1. Predictive Async Chunk Pre-Loading along flight vector (non-blocking)\n" +
+                "        if (speedSqr > 0.25 || isFlying) {\n" +
+                "            double speed = Math.sqrt(speedSqr);\n" +
+                "            if (speed > 0.001) {\n" +
+                "                double dirX = vx / speed;\n" +
+                "                double dirZ = vz / speed;\n" +
+                "                for (int step = 16; step <= 96; step += 16) {\n" +
+                "                    int aheadX = SectionPos.m_123171_((int) (targetX + dirX * step));\n" +
+                "                    int aheadZ = SectionPos.m_123171_((int) (targetZ + dirZ * step));\n" +
+                "                    try {\n" +
+                "                        level.m_7726_().m_8431_(aheadX, aheadZ, ChunkStatus.f_62326_, true);\n" +
+                "                    } catch (Throwable ignored) {}\n" +
+                "                }\n" +
+                "            }\n" +
+                "        }\n\n" +
+                "        // 2. Immediate chunk inspection (non-blocking, load=false)\n" +
+                "        ChunkAccess chunk = level.m_7726_().m_7587_(chunkX, chunkZ, ChunkStatus.f_62326_, false);\n" +
+                "        if (chunk instanceof LevelChunk levelChunk) {\n" +
+                "            if (chunkX != prevChunkX || chunkZ != prevChunkZ) {\n" +
+                "                try {\n" +
+                "                    player.f_8906_.m_9829_(new ClientboundLevelChunkWithLightPacket(levelChunk, level.m_7726_().m_7827_(), null, null));\n" +
+                "                } catch (Throwable ignored) {}\n" +
+                "            }\n\n" +
+                "            int localX = blockX & 15;\n" +
+                "            int localZ = blockZ & 15;\n" +
+                "            int surfaceY = chunk.m_5885_(Heightmap.Types.WORLD_SURFACE, localX, localZ);\n" +
+                "            int oceanFloorY = chunk.m_5885_(Heightmap.Types.OCEAN_FLOOR, localX, localZ);\n" +
+                "            int groundY = Math.max(surfaceY, oceanFloorY);\n" +
+                "            int minBuildY = level.m_141937_();\n\n" +
+                "            if (groundY > minBuildY) {\n" +
+                "                double targetGroundY = groundY + 1.05;\n" +
+                "                if (targetY < targetGroundY) {\n" +
+                "                    if (prevY >= groundY - 2.0 || isFlying || prevY > targetY) {\n" +
+                "                        return targetGroundY;\n" +
+                "                    }\n" +
+                "                }\n" +
+                "            }\n" +
+                "        } else if (isFlying) {\n" +
+                "            try {\n" +
+                "                level.m_7726_().m_8431_(chunkX, chunkZ, ChunkStatus.f_62326_, true);\n" +
+                "            } catch (Throwable ignored) {}\n\n" +
+                "            int seaLevel = level.m_5736_();\n" +
+                "            if (targetY < seaLevel && prevY >= seaLevel) {\n" +
+                "                return seaLevel + 1.05;\n" +
+                "            }\n" +
+                "        }\n\n" +
+                "        return targetY;\n" +
+                "    }\n" +
+                "}\n";
+
             Files.writeString(new File(bridgePkg, "NoiseChunkBridge.java").toPath(), noiseBridgeSrc);
             Files.writeString(new File(bridgePkg, "SurfaceContextBridge.java").toPath(), surfaceBridgeSrc);
             Files.writeString(new File(optPkg, "ChunkGenMathOptimizer.java").toPath(), optSrc);
+            Files.writeString(new File(optPkg, "WorldMeshFlightSafeguard.java").toPath(), flightSafeguardSrc);
             Files.writeString(new File(mixinPkg, "NoiseChunkMixin.java").toPath(), noiseChunkMixinSrc);
             Files.writeString(new File(mixinPkg, "SurfaceRules_ContextMixin.java").toPath(), surfaceContextMixinSrc);
             Files.writeString(new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").toPath(), noiseGenMixinSrc);
@@ -1196,6 +1294,7 @@ public class ArclightPatcher {
                 new File(bridgePkg, "NoiseChunkBridge.java").getAbsolutePath(),
                 new File(bridgePkg, "SurfaceContextBridge.java").getAbsolutePath(),
                 new File(optPkg, "ChunkGenMathOptimizer.java").getAbsolutePath(),
+                new File(optPkg, "WorldMeshFlightSafeguard.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseChunkMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "SurfaceRules_ContextMixin.java").getAbsolutePath(),
                 new File(mixinPkg, "NoiseBasedChunkGeneratorMixin.java").getAbsolutePath(),
